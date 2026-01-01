@@ -5,7 +5,6 @@ Includes main menu, game configuration, and game loop.
 """
 
 import sys
-import random
 import pygame
 
 # Add project root to path for imports
@@ -15,61 +14,60 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from engine.hex_grid import HexCoord
 from engine.tile import Tile
 from engine.renderer import HexRenderer
+from engine.camera import Camera
 from engine.unit import Army, Hero, UnitStats
 from engine.game_state import GameState
-from game.terrain import TerrainType, TERRAIN_CONFIGS
 from game.units import create_lancer, create_archer, create_cavalry, create_mage
+from game.map_generator import MapConfig, MapGenerator
 
 
 # Game configuration defaults
 DEFAULT_CONFIG = {
-    'map_width': 15,
-    'map_height': 10,
-    'player1_armies': 2,
-    'player2_armies': 2,
+    'map_width': 100,
+    'map_height': 100,
+    'player1_armies': 3,
+    'player2_armies': 3,
     'add_river': True,
 }
 
-# Hex size (50% larger than original 35)
-HEX_SIZE = 52.0
+# Hex size is now managed by Camera with zoom levels [24, 36, 48, 72, 96]
+# Default zoom index 2 = 48px
 
 
-def generate_test_map(width: int, height: int, add_river: bool = True) -> dict[tuple[int, int], Tile]:
-    """Generate a test map with varied terrain."""
-    tiles = {}
+def generate_test_map(width: int, height: int, add_river: bool = True, seed: int = None) -> dict[tuple[int, int], Tile]:
+    """
+    Generate a map using the layered terrain generator.
 
-    terrain_weights = [
-        (TerrainType.PLAINS, 40),
-        (TerrainType.FOREST, 25),
-        (TerrainType.MOUNTAIN, 10),
-        (TerrainType.WATER, 10),
-        (TerrainType.DESERT, 10),
-        (TerrainType.SWAMP, 5),
-    ]
+    Args:
+        width: Map width in hexes
+        height: Map height in hexes
+        add_river: Whether to add a river
+        seed: Random seed for reproducibility (None = random)
 
-    def weighted_random_terrain() -> TerrainType:
-        total = sum(w for _, w in terrain_weights)
-        r = random.randint(1, total)
-        cumulative = 0
-        for terrain, weight in terrain_weights:
-            cumulative += weight
-            if r <= cumulative:
-                return terrain
-        return TerrainType.PLAINS
+    Returns:
+        Dictionary mapping (q, r) to Tile objects
+    """
+    config = MapConfig(
+        width=width,
+        height=height,
+        seed=seed,
+        add_river=add_river,
+        river_count=max(1, width // 50),       # More rivers for bigger maps
+        river_min_width=1,
+        river_max_width=3,
+        forest_density=0.30,
+        mountain_density=0.08,
+        mountain_cluster_size=12,              # ~10-12 hex clusters
+        add_lakes=True,
+        lake_count=max(2, width // 40),
+        swamp_near_water=True,
+        add_cities=True,
+        add_roads=True,
+        add_bridges=True,
+    )
 
-    for row in range(height):
-        for col in range(width):
-            q = col - (row // 2)
-            r = row
-            coord = HexCoord(q, r)
-            terrain_type = weighted_random_terrain()
-            tile = Tile(position=coord, terrain=TERRAIN_CONFIGS[terrain_type])
-            tiles[coord.to_tuple()] = tile
-
-    if add_river:
-        _add_water_feature(tiles, width, height)
-
-    return tiles
+    generator = MapGenerator(config)
+    return generator.generate()
 
 
 def create_test_units(tiles: dict, p1_count: int, p2_count: int) -> list[Army]:
@@ -129,22 +127,6 @@ def create_test_units(tiles: dict, p1_count: int, p2_count: int) -> list[Army]:
     return armies
 
 
-def _add_water_feature(tiles: dict, width: int, height: int):
-    """Add a river to the map."""
-    current_col = width // 4
-    for row in range(height):
-        q = current_col - (row // 2)
-        r = row
-        coord = (q, r)
-        if coord in tiles:
-            tiles[coord] = Tile(
-                position=HexCoord(q, r),
-                terrain=TERRAIN_CONFIGS[TerrainType.WATER]
-            )
-        current_col += random.choice([-1, 0, 0, 1])
-        current_col = max(0, min(width - 1, current_col))
-
-
 class MainMenu:
     """Main menu screen with game configuration."""
 
@@ -163,10 +145,10 @@ class MainMenu:
         # UI state
         self.selected_option = 0
         self.options = [
-            ('map_width', 'Map Width', [8, 10, 12, 15, 20, 25, 30]),
-            ('map_height', 'Map Height', [6, 8, 10, 12, 15, 20]),
-            ('player1_armies', 'Player 1 Armies', [1, 2, 3, 4, 5]),
-            ('player2_armies', 'Player 2 Armies', [1, 2, 3, 4, 5]),
+            ('map_width', 'Map Width', [50, 75, 100, 150, 200]),
+            ('map_height', 'Map Height', [50, 75, 100, 150, 200]),
+            ('player1_armies', 'Player 1 Armies', [1, 2, 3, 4, 5, 6]),
+            ('player2_armies', 'Player 2 Armies', [1, 2, 3, 4, 5, 6]),
             ('add_river', 'Add River', [True, False]),
         ]
 
@@ -320,18 +302,22 @@ def run_game(screen: pygame.Surface, config: dict):
     screen_width = screen.get_width()
     screen_height = screen.get_height()
 
-    # Create renderer using existing screen
+    # Create camera for zoom management
+    camera = Camera(screen_width, screen_height)
+
+    # Create renderer using existing screen with camera
     renderer = HexRenderer.__new__(HexRenderer)
     renderer.screen_width = screen_width
     renderer.screen_height = screen_height
-    renderer.hex_size = HEX_SIZE
+    renderer._camera = camera
+    renderer._base_hex_size = camera.hex_size
     renderer.title = "Hex Strategy Game"
-    renderer.offset = (100.0, 100.0)
+    renderer._offset = (100.0, 100.0)
     renderer.screen = screen
     renderer.clock = pygame.time.Clock()
     renderer.font = pygame.font.Font(None, 24)
     renderer.hex_grid = __import__('engine.hex_grid', fromlist=['HexGrid']).HexGrid(
-        hex_size=HEX_SIZE, pointy_top=True
+        hex_size=camera.hex_size, pointy_top=True
     )
     renderer.selected_hex = None
     renderer.hover_hex = None
@@ -364,6 +350,13 @@ def run_game(screen: pygame.Surface, config: dict):
     show_coordinates = False
     scroll_speed = 10
 
+    # Drag state for map panning
+    is_dragging = False
+    drag_start_pos = (0, 0)
+    drag_start_offset = (0.0, 0.0)
+    drag_button = None  # Which button started the drag (2 or 3)
+    drag_threshold = 5  # Minimum pixels to consider it a drag vs click
+
     # Track delta time for combat message timer
     dt = 0
 
@@ -382,6 +375,11 @@ def run_game(screen: pygame.Surface, config: dict):
                     show_coordinates = not show_coordinates
                 elif event.key == pygame.K_SPACE:
                     game_state.end_turn(armies)
+                # Zoom controls with + and - keys
+                elif event.key in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
+                    renderer.zoom_in()
+                elif event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
+                    renderer.zoom_out()
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
@@ -419,8 +417,52 @@ def run_game(screen: pygame.Surface, config: dict):
                         renderer.selected_hex = clicked_hex
 
                 elif event.button == 3:
-                    game_state.select_unit(None, tiles)
-                    renderer.selected_hex = None
+                    # Right click: start potential drag (deselect on release if no drag)
+                    is_dragging = True
+                    drag_button = 3
+                    drag_start_pos = mouse_pos
+                    drag_start_offset = camera.offset
+
+                # Middle mouse button: start dragging
+                elif event.button == 2:
+                    is_dragging = True
+                    drag_button = 2
+                    drag_start_pos = mouse_pos
+                    drag_start_offset = camera.offset
+
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if event.button in (2, 3) and drag_button == event.button:
+                    # Calculate how far we moved
+                    dx = abs(mouse_pos[0] - drag_start_pos[0])
+                    dy = abs(mouse_pos[1] - drag_start_pos[1])
+                    was_drag = (dx > drag_threshold or dy > drag_threshold)
+
+                    # If right-click and didn't drag, treat as deselect
+                    if event.button == 3 and not was_drag:
+                        game_state.select_unit(None, tiles)
+                        renderer.selected_hex = None
+
+                    is_dragging = False
+                    drag_button = None
+
+            elif event.type == pygame.MOUSEMOTION:
+                # Handle drag to pan the map
+                if is_dragging:
+                    dx = mouse_pos[0] - drag_start_pos[0]
+                    dy = mouse_pos[1] - drag_start_pos[1]
+                    camera.set_offset(
+                        drag_start_offset[0] + dx,
+                        drag_start_offset[1] + dy
+                    )
+
+            # Zoom with Ctrl+mousewheel
+            elif event.type == pygame.MOUSEWHEEL:
+                mods = pygame.key.get_mods()
+                if mods & pygame.KMOD_CTRL:
+                    if event.y > 0:
+                        renderer.zoom_in()
+                    elif event.y < 0:
+                        renderer.zoom_out()
 
         # Scrolling
         keys = pygame.key.get_pressed()
@@ -484,9 +526,13 @@ def run_game(screen: pygame.Surface, config: dict):
         renderer.draw_text(player_text, (10, 28), color=game_state.current_player.color)
 
         renderer.draw_text(
-            "Arrows: Pan | C: Coords | Space: End Turn | ESC: Menu",
+            "Arrows/Middle-drag: Pan | +/-: Zoom | C: Coords | Space: End Turn",
             (200, 18), color=(150, 150, 150)
         )
+
+        # Show zoom level
+        zoom_text = f"Zoom: {camera.zoom_level_name}"
+        renderer.draw_text(zoom_text, (screen_width - 280, 8), color=(150, 150, 150))
 
         renderer.draw_button("End Turn", end_turn_button_rect, is_hovered=end_turn_hovered)
 

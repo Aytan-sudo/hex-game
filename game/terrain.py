@@ -17,6 +17,8 @@ class TerrainType(Enum):
     DESERT = "desert"
     SWAMP = "swamp"
     ROAD = "road"
+    CITY = "city"
+    BRIDGE = "bridge"
 
 
 # Terrain configurations with gameplay properties
@@ -68,6 +70,20 @@ TERRAIN_CONFIGS: dict[TerrainType, TerrainConfig] = {
         movement_cost=1,  # Fast movement
         defense_bonus=-1,  # Exposed on roads
         color=(210, 180, 140)  # Tan
+    ),
+
+    TerrainType.CITY: TerrainConfig(
+        name="City",
+        movement_cost=1,
+        defense_bonus=3,  # Good defense in cities
+        color=(169, 169, 169)  # Dark gray
+    ),
+
+    TerrainType.BRIDGE: TerrainConfig(
+        name="Bridge",
+        movement_cost=1,  # Cross water easily
+        defense_bonus=-2,  # Very exposed on bridges
+        color=(139, 90, 43)  # Saddle brown (wooden bridge)
     ),
 }
 

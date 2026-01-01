@@ -25,10 +25,16 @@ python game/main.py
 
 | Touche | Action |
 |--------|--------|
-| WASD / Flèches | Déplacer la carte |
+| Flèches | Déplacer la carte |
+| Clic molette + glisser | Déplacer la carte (drag) |
+| Clic droit + glisser | Déplacer la carte (drag trackpad) |
+| +/- | Zoom avant/arrière |
+| Ctrl + Molette | Zoom avant/arrière |
 | C | Afficher/masquer les coordonnées |
 | Clic gauche | Sélectionner une case |
-| ESC | Quitter |
+| Clic droit | Désélectionner |
+| Espace | Fin de tour |
+| ESC | Retour au menu |
 
 ## Structure du projet
 
@@ -51,15 +57,16 @@ hex-game/
 
 ## Terrains
 
-| Terrain | Coût mouvement | Bonus défense | Couleur |
-|---------|----------------|---------------|---------|
-| Plaine | 1 | 0 | Vert clair |
-| Forêt | 2 | +2 | Vert foncé |
-| Montagne | 3 | +4 | Gris |
-| Eau | Infranchissable | - | Bleu |
-| Désert | 2 | -1 | Jaune |
-| Marais | 3 | +1 | Olive |
-| Route | 1 | -1 | Beige |
+| Terrain | Coût mouvement | Bonus défense | Description |
+|---------|----------------|---------------|-------------|
+| Plaine | 1 | 0 | Terrain de base |
+| Forêt | 2 | +2 | Couverture naturelle |
+| Montagne | 3 | +4 | Massifs montagneux |
+| Eau | Infranchissable | - | Rivières et lacs |
+| Marais | 3 | +1 | Près de l'eau |
+| Route | 1 | -1 | Relie les villes |
+| Ville | 1 | +3 | Points stratégiques |
+| Pont | 1 | -2 | Traverse l'eau |
 
 ## Unités disponibles
 

@@ -5,12 +5,15 @@ Handles all visual rendering of the hex grid, tiles, and units.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 import math
 import pygame
 
 from .hex_grid import HexGrid, HexCoord
 from .tile import Tile
+
+if TYPE_CHECKING:
+    from .camera import Camera
 
 
 class HexRenderer:
@@ -31,7 +34,8 @@ class HexRenderer:
         screen_width: int = 1280,
         screen_height: int = 720,
         hex_size: float = 30.0,
-        title: str = "Hex Strategy Game"
+        title: str = "Hex Strategy Game",
+        camera: Optional[Camera] = None
     ):
         """
         Initialize the renderer.
@@ -39,16 +43,20 @@ class HexRenderer:
         Args:
             screen_width: Window width in pixels
             screen_height: Window height in pixels
-            hex_size: Size of hexagons (center to corner)
+            hex_size: Size of hexagons (center to corner) - ignored if camera provided
             title: Window title
+            camera: Optional Camera instance for zoom control
         """
         self.screen_width = screen_width
         self.screen_height = screen_height
-        self.hex_size = hex_size
         self.title = title
 
-        # Grid offset for centering/scrolling
-        self.offset = (100.0, 100.0)
+        # Camera for zoom and offset management
+        self._camera = camera
+        self._base_hex_size = hex_size  # Fallback if no camera
+
+        # Grid offset for centering/scrolling (used only if no camera)
+        self._offset = (100.0, 100.0)
 
         # Initialize Pygame
         pygame.init()
@@ -58,11 +66,47 @@ class HexRenderer:
         self.font = pygame.font.Font(None, 24)
 
         # Create hex grid helper
-        self.hex_grid = HexGrid(hex_size=hex_size, pointy_top=True)
+        self.hex_grid = HexGrid(hex_size=self.hex_size, pointy_top=True)
 
         # Selection state
         self.selected_hex: Optional[HexCoord] = None
         self.hover_hex: Optional[HexCoord] = None
+
+    @property
+    def hex_size(self) -> float:
+        """Current hex size (from camera if available)."""
+        if self._camera:
+            return self._camera.hex_size
+        return self._base_hex_size
+
+    @property
+    def offset(self) -> Tuple[float, float]:
+        """Current offset (from camera if available)."""
+        if self._camera:
+            return self._camera.offset
+        return self._offset
+
+    @offset.setter
+    def offset(self, value: Tuple[float, float]):
+        """Set offset (on camera if available)."""
+        if self._camera:
+            self._camera.set_offset(value[0], value[1])
+        else:
+            self._offset = value
+
+    @property
+    def camera(self) -> Optional[Camera]:
+        """Get the camera instance."""
+        return self._camera
+
+    def set_camera(self, camera: Camera):
+        """Set or update the camera and rebuild hex_grid."""
+        self._camera = camera
+        self._rebuild_hex_grid()
+
+    def _rebuild_hex_grid(self):
+        """Rebuild hex_grid with current hex_size."""
+        self.hex_grid = HexGrid(hex_size=self.hex_size, pointy_top=True)
 
     def clear(self):
         """Clear the screen with background color."""
@@ -228,11 +272,31 @@ class HexRenderer:
 
     def set_offset(self, x: float, y: float):
         """Set the rendering offset (for scrolling/panning)."""
-        self.offset = (x, y)
+        if self._camera:
+            self._camera.set_offset(x, y)
+        else:
+            self._offset = (x, y)
 
     def move_offset(self, dx: float, dy: float):
         """Move the rendering offset by a delta."""
-        self.offset = (self.offset[0] + dx, self.offset[1] + dy)
+        if self._camera:
+            self._camera.move_offset(dx, dy)
+        else:
+            self._offset = (self._offset[0] + dx, self._offset[1] + dy)
+
+    def zoom_in(self) -> bool:
+        """Zoom in if camera is available."""
+        if self._camera and self._camera.zoom_in():
+            self._rebuild_hex_grid()
+            return True
+        return False
+
+    def zoom_out(self) -> bool:
+        """Zoom out if camera is available."""
+        if self._camera and self._camera.zoom_out():
+            self._rebuild_hex_grid()
+            return True
+        return False
 
     def update_display(self):
         """Update the display (call after drawing)."""
