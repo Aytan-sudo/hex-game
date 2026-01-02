@@ -2,21 +2,21 @@
 Procedural map generator for the hex strategy game.
 
 Uses a layered approach:
-1. Base terrain (plains, forests) using noise
+1. Base terrain (plains, hills, forests) using noise
 2. Mountain ranges (clustered massifs)
 3. Water features (rivers with variable width)
 4. Contextual terrain (swamps near water)
-5. Infrastructure (cities, roads, bridges)
+5. Infrastructure (cities, roads, bridges) as overlays
 """
 
 import random
 import math
 from typing import Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from engine.hex_grid import HexCoord
 from engine.tile import Tile
-from game.terrain import TerrainType, TERRAIN_CONFIGS
+from game.terrain import TerrainType, OverlayType
 
 
 @dataclass
@@ -28,6 +28,7 @@ class MapConfig:
 
     # Terrain distribution
     forest_density: float = 0.30     # 0.0 to 1.0
+    hills_density: float = 0.15      # 0.0 to 1.0
     mountain_density: float = 0.08   # 0.0 to 1.0 (will form clusters)
 
     # Mountain clusters
@@ -47,11 +48,13 @@ class MapConfig:
     # Contextual terrain
     swamp_near_water: bool = True
 
-    # Infrastructure
+    # Infrastructure (overlays)
     add_cities: bool = True
     city_count: int = 0              # 0 = auto-calculate based on map size
     add_roads: bool = True
     add_bridges: bool = True
+    add_ruins: bool = True
+    ruins_count: int = 0             # 0 = auto-calculate
 
 
 class SimplexNoise:
@@ -134,6 +137,7 @@ class MapGenerator:
         # Track special positions
         self.water_tiles: set[tuple[int, int]] = set()
         self.mountain_tiles: set[tuple[int, int]] = set()
+        self.hills_tiles: set[tuple[int, int]] = set()
         self.city_positions: list[tuple[int, int]] = []
         self.river_paths: list[list[tuple[int, int]]] = []
 
@@ -146,7 +150,7 @@ class MapGenerator:
         """
         random.seed(self.seed)
 
-        # Layer 1: Base terrain (plains and forests)
+        # Layer 1: Base terrain (plains, hills, and forests)
         self._generate_base_terrain()
 
         # Layer 2: Mountain ranges (clustered)
@@ -162,23 +166,26 @@ class MapGenerator:
         if self.config.swamp_near_water:
             self._add_swamps_near_water()
 
-        # Layer 5: Infrastructure
+        # Layer 5: Infrastructure (overlays)
         if self.config.add_cities:
             self._generate_cities()
         if self.config.add_roads:
             self._generate_roads()
+        if self.config.add_ruins:
+            self._generate_ruins()
 
         return self.tiles
 
     def _generate_base_terrain(self):
         """
-        Layer 1: Generate base terrain (plains and forests) using noise.
+        Layer 1: Generate base terrain (plains, hills, and forests) using noise.
         Mountains are handled separately in clusters.
         """
         forest_scale = 0.08  # Larger features for big maps
+        hills_scale = 0.06   # Different scale for hills
 
-        # Collect all coordinates and their forest noise
-        coords_data: list[tuple[tuple[int, int], float]] = []
+        # Collect all coordinates and their noise values
+        coords_data: list[tuple[tuple[int, int], float, float]] = []
 
         for row in range(self.config.height):
             for col in range(self.config.width):
@@ -191,23 +198,41 @@ class MapGenerator:
                     octaves=3,
                     persistence=0.5
                 )
-                coords_data.append(((q, r), forest_noise))
 
-        # Determine forest threshold
+                hills_noise = self.noise.octave_noise(
+                    q * hills_scale + 100,
+                    r * hills_scale + 100,
+                    octaves=3,
+                    persistence=0.6
+                )
+
+                coords_data.append(((q, r), forest_noise, hills_noise))
+
+        # Determine thresholds
         forest_values = sorted([d[1] for d in coords_data], reverse=True)
+        hills_values = sorted([d[2] for d in coords_data], reverse=True)
         total = len(forest_values)
+
         forest_count = int(total * self.config.forest_density)
+        hills_count = int(total * self.config.hills_density)
+
         forest_threshold = forest_values[forest_count] if forest_count < total else forest_values[-1]
+        hills_threshold = hills_values[hills_count] if hills_count < total else hills_values[-1]
 
         # Assign terrain
-        for (q, r), forest_noise in coords_data:
+        for (q, r), forest_noise, hills_noise in coords_data:
             coord = HexCoord(q, r)
-            if forest_noise >= forest_threshold:
+
+            # Determine base terrain (priority: hills > forest > plains)
+            if hills_noise >= hills_threshold:
+                terrain_type = TerrainType.HILLS
+                self.hills_tiles.add((q, r))
+            elif forest_noise >= forest_threshold:
                 terrain_type = TerrainType.FOREST
             else:
                 terrain_type = TerrainType.PLAINS
 
-            tile = Tile(position=coord, terrain=TERRAIN_CONFIGS[terrain_type])
+            tile = Tile(position=coord, base_terrain=terrain_type)
             self.tiles[coord.to_tuple()] = tile
 
     def _generate_mountain_clusters(self):
@@ -335,9 +360,11 @@ class MapGenerator:
         for coord in cluster:
             self.tiles[coord] = Tile(
                 position=HexCoord(*coord),
-                terrain=TERRAIN_CONFIGS[TerrainType.MOUNTAIN]
+                base_terrain=TerrainType.MOUNTAIN
             )
             self.mountain_tiles.add(coord)
+            # Remove from hills if it was there
+            self.hills_tiles.discard(coord)
 
     def _generate_rivers(self):
         """
@@ -471,9 +498,12 @@ class MapGenerator:
         if coord in self.tiles:
             self.tiles[coord] = Tile(
                 position=HexCoord(*coord),
-                terrain=TERRAIN_CONFIGS[TerrainType.WATER]
+                base_terrain=TerrainType.WATER
             )
             self.water_tiles.add(coord)
+            # Remove from other sets
+            self.mountain_tiles.discard(coord)
+            self.hills_tiles.discard(coord)
 
     def _generate_lakes(self):
         """Layer 3b: Generate lakes."""
@@ -537,20 +567,20 @@ class MapGenerator:
                 coord = neighbor.to_tuple()
                 if coord in self.tiles and coord not in self.water_tiles:
                     tile = self.tiles[coord]
-                    if tile.terrain.name == "Plains":
+                    if tile.base_terrain == TerrainType.PLAINS:
                         swamp_candidates.add(coord)
 
         for coord in swamp_candidates:
             if random.random() < 0.35:
                 self.tiles[coord] = Tile(
                     position=HexCoord(*coord),
-                    terrain=TERRAIN_CONFIGS[TerrainType.SWAMP]
+                    base_terrain=TerrainType.SWAMP
                 )
 
     def _generate_cities(self):
         """
         Layer 5a: Generate cities at strategic locations.
-        Cities are placed near water but not on mountains.
+        Cities are placed as overlays on suitable base terrain.
         """
         city_count = self.config.city_count
         if city_count == 0:
@@ -598,9 +628,12 @@ class MapGenerator:
                 elif min_water_dist <= 6:
                     score += 3
 
-                # On plains is good
-                if self.tiles[coord].terrain.name == "Plains":
+                # On plains is best, hills is okay
+                tile = self.tiles[coord]
+                if tile.base_terrain == TerrainType.PLAINS:
                     score += 5
+                elif tile.base_terrain == TerrainType.HILLS:
+                    score += 2
 
                 # Not surrounded by mountains
                 neighbors = HexCoord(*coord).neighbors()
@@ -612,10 +645,9 @@ class MapGenerator:
                     best_coord = coord
 
             if best_coord:
-                self.tiles[best_coord] = Tile(
-                    position=HexCoord(*best_coord),
-                    terrain=TERRAIN_CONFIGS[TerrainType.CITY]
-                )
+                # Add city as overlay on existing terrain
+                tile = self.tiles[best_coord]
+                tile.overlay = OverlayType.CITY
                 self.city_positions.append(best_coord)
 
     def _generate_roads(self):
@@ -655,21 +687,66 @@ class MapGenerator:
             if coord == start or coord == end:
                 continue  # Don't overwrite cities
 
+            tile = self.tiles.get(coord)
+            if not tile:
+                continue
+
             if coord in self.water_tiles:
-                # Build bridge
+                # Build bridge as overlay on water
                 if self.config.add_bridges:
-                    self.tiles[coord] = Tile(
-                        position=HexCoord(*coord),
-                        terrain=TERRAIN_CONFIGS[TerrainType.BRIDGE]
-                    )
+                    tile.overlay = OverlayType.BRIDGE
             elif coord not in self.mountain_tiles:
-                # Build road (not through mountains)
-                tile = self.tiles.get(coord)
-                if tile and tile.terrain.name in ["Plains", "Forest", "Swamp"]:
-                    self.tiles[coord] = Tile(
-                        position=HexCoord(*coord),
-                        terrain=TERRAIN_CONFIGS[TerrainType.ROAD]
-                    )
+                # Build road as overlay (not through mountains)
+                if tile.base_terrain in [TerrainType.PLAINS, TerrainType.FOREST,
+                                          TerrainType.SWAMP, TerrainType.HILLS,
+                                          TerrainType.DESERT]:
+                    tile.overlay = OverlayType.ROAD
+
+    def _generate_ruins(self):
+        """Layer 5c: Generate ruins scattered across the map."""
+        ruins_count = self.config.ruins_count
+        if ruins_count == 0:
+            # Auto-calculate: roughly 1 ruin per 2000 tiles
+            ruins_count = max(2, (self.config.width * self.config.height) // 2000)
+
+        min_ruin_distance = 10
+
+        placed = 0
+        attempts = ruins_count * 20
+
+        for _ in range(attempts):
+            if placed >= ruins_count:
+                break
+
+            row = random.randint(3, self.config.height - 3)
+            col = random.randint(3, self.config.width - 3)
+            q = col - (row // 2)
+            coord = (q, row)
+
+            if coord not in self.tiles:
+                continue
+
+            tile = self.tiles[coord]
+
+            # Don't place on water, mountains, or tiles with overlays
+            if coord in self.water_tiles or coord in self.mountain_tiles:
+                continue
+            if tile.overlay is not None:
+                continue
+
+            # Check distance from cities and other ruins
+            too_close = False
+            for city in self.city_positions:
+                if HexCoord(*coord).distance_to(HexCoord(*city)) < min_ruin_distance:
+                    too_close = True
+                    break
+
+            if too_close:
+                continue
+
+            # Place ruin as overlay
+            tile.overlay = OverlayType.RUINS
+            placed += 1
 
     def _find_path(self, start: tuple[int, int], end: tuple[int, int]) -> list[tuple[int, int]]:
         """Find a path between two points (simple A* implementation)."""
@@ -746,6 +823,7 @@ def generate_map(
     seed: Optional[int] = None,
     add_river: bool = True,
     forest_density: float = 0.30,
+    hills_density: float = 0.15,
     mountain_density: float = 0.08
 ) -> dict[tuple[int, int], Tile]:
     """
@@ -757,6 +835,7 @@ def generate_map(
         seed=seed,
         add_river=add_river,
         forest_density=forest_density,
+        hills_density=hills_density,
         mountain_density=mountain_density,
     )
 

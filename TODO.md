@@ -5,6 +5,7 @@
 ### Génération contextuelle
 - [ ] Combat urbain (ville) - génération de rues, bâtiments, places
 - [ ] Combat sur pont - rivière traversant la carte avec pont au centre
+- [ ] Combat en collines - terrain vallonné avec avantages de hauteur
 
 ### Avantages tactiques
 - [ ] **Couvert** : Bonus défense en forêt, malus pour les attaques à distance
@@ -17,7 +18,6 @@
 - [ ] Flanquement : Bonus si attaque depuis plusieurs directions
 - [ ] Moral : Fuite possible si HP < 25%
 - [ ] Fatigue : Malus après plusieurs tours de combat
-- [ ] Animation de déplacement case par case (comme carte stratégique)
 
 ---
 
@@ -91,7 +91,7 @@
 ### Sprites
 - [ ] Sprites pour les unités (remplacer les cercles)
 - [ ] Sprites pour les héros
-- [ ] Icônes de terrain
+- [ ] Icônes de terrain et constructions
 - [ ] Animations d'attaque
 
 ### Audio
@@ -103,7 +103,7 @@
 
 ## Priorités
 
-1. Combat urbain (ville)
+1. Combat en collines (carte tactique pour nouveau terrain)
 2. Avantages tactiques de base (couvert, hauteur)
 3. Mini-carte
 4. IA basique pour Player 2

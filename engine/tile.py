@@ -2,27 +2,18 @@
 Tile system for the hex grid.
 
 Each tile represents a single hexagon on the map with its terrain,
-movement costs, and other properties.
+overlay (construction), movement costs, and other properties.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional, TYPE_CHECKING
-from enum import Enum
+from dataclasses import dataclass
+from typing import Optional, TYPE_CHECKING, Tuple
 
 from .hex_grid import HexCoord
 
 if TYPE_CHECKING:
     from .unit import Unit
-
-
-@dataclass
-class TerrainConfig:
-    """Configuration for a terrain type."""
-    name: str
-    movement_cost: int  # 1 = normal, 2 = difficult, -1 = impassable
-    defense_bonus: int  # Bonus to defense when unit is on this terrain
-    color: tuple[int, int, int]  # RGB color for rendering
+    from game.terrain import TerrainType, OverlayType
 
 
 @dataclass
@@ -32,28 +23,48 @@ class Tile:
 
     Attributes:
         position: Axial hex coordinate of this tile
-        terrain: Terrain configuration for this tile
+        base_terrain: Base terrain type (TerrainType enum value)
+        overlay: Optional overlay/construction type (OverlayType enum value)
         unit: Unit currently occupying this tile (if any)
         is_visible: Whether tile is visible to current player
         is_explored: Whether tile has been explored (fog of war)
     """
     position: HexCoord
-    terrain: TerrainConfig
-    unit: Optional[Unit] = None
+    base_terrain: "TerrainType"
+    overlay: Optional["OverlayType"] = None
+    unit: Optional["Unit"] = None
     is_visible: bool = True
     is_explored: bool = True
 
     @property
     def is_passable(self) -> bool:
         """Check if units can move through this tile."""
-        return self.terrain.movement_cost > 0
+        return self.get_movement_cost() > 0
 
     @property
     def is_occupied(self) -> bool:
         """Check if a unit is on this tile."""
         return self.unit is not None
 
-    def can_enter(self, unit: Optional[Unit] = None) -> bool:
+    @property
+    def display_color(self) -> Tuple[int, int, int]:
+        """Get the display color for this tile."""
+        from game.terrain import get_display_color
+        return get_display_color(self.base_terrain, self.overlay)
+
+    @property
+    def display_name(self) -> str:
+        """Get the display name for this tile."""
+        from game.terrain import get_display_name
+        return get_display_name(self.base_terrain, self.overlay)
+
+    @property
+    def defense_bonus(self) -> int:
+        """Get the combined defense bonus for this tile."""
+        from game.terrain import calculate_combined_defense_bonus
+        return calculate_combined_defense_bonus(self.base_terrain, self.overlay)
+
+    def can_enter(self, unit: Optional["Unit"] = None) -> bool:
         """
         Check if a unit can enter this tile.
 
@@ -65,7 +76,7 @@ class Tile:
         """
         return self.is_passable and not self.is_occupied
 
-    def get_movement_cost(self, unit: Optional[Unit] = None) -> int:
+    def get_movement_cost(self, unit: Optional["Unit"] = None) -> int:
         """
         Get the movement cost to enter this tile.
 
@@ -75,9 +86,10 @@ class Tile:
         Returns:
             Movement cost, or -1 if impassable
         """
-        return self.terrain.movement_cost
+        from game.terrain import calculate_combined_movement_cost
+        return calculate_combined_movement_cost(self.base_terrain, self.overlay)
 
-    def place_unit(self, unit: Unit) -> bool:
+    def place_unit(self, unit: "Unit") -> bool:
         """
         Place a unit on this tile.
 
@@ -92,7 +104,7 @@ class Tile:
         self.unit = unit
         return True
 
-    def remove_unit(self) -> Optional[Unit]:
+    def remove_unit(self) -> Optional["Unit"]:
         """
         Remove and return the unit from this tile.
 

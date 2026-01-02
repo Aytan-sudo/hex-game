@@ -31,19 +31,8 @@ StrategicUnit = Army | Hero
 # =============================================================================
 
 def _get_terrain_type(tile: Tile) -> TerrainType:
-    """Get the TerrainType enum from a tile's terrain config."""
-    name_to_type = {
-        "Plains": TerrainType.PLAINS,
-        "Forest": TerrainType.FOREST,
-        "Mountain": TerrainType.MOUNTAIN,
-        "Water": TerrainType.WATER,
-        "Desert": TerrainType.DESERT,
-        "Swamp": TerrainType.SWAMP,
-        "Road": TerrainType.ROAD,
-        "City": TerrainType.CITY,
-        "Bridge": TerrainType.BRIDGE,
-    }
-    return name_to_type.get(tile.terrain.name, TerrainType.PLAINS)
+    """Get the TerrainType enum from a tile's base terrain."""
+    return tile.base_terrain
 
 
 def _get_hero_at(
@@ -664,7 +653,7 @@ class StrategicRenderer:
         selected_hex: Optional[HexCoord]
     ) -> Tuple[int, int, int]:
         """Determine the color for a tile based on state."""
-        color = tile.terrain.color
+        color = tile.display_color
 
         # Valid move highlight
         if coord_tuple in game_state.valid_moves:
@@ -827,7 +816,7 @@ class StrategicRenderer:
 
         if selected_hex and selected_hex.to_tuple() in tiles:
             tile = tiles[selected_hex.to_tuple()]
-            info = f"Terrain: {tile.terrain.name} | Move cost: {tile.terrain.movement_cost} | Def bonus: +{tile.terrain.defense_bonus}"
+            info = f"Terrain: {tile.display_name} | Move cost: {tile.get_movement_cost()} | Def bonus: +{tile.defense_bonus}"
             info_surf = self.font.render(info, True, (200, 200, 200))
             self.screen.blit(info_surf, (10, self.screen_height - 52))
 
@@ -849,7 +838,7 @@ class StrategicRenderer:
 
         if hover_hex and hover_hex.to_tuple() in tiles:
             tile = tiles[hover_hex.to_tuple()]
-            hover_text = f"({hover_hex.q}, {hover_hex.r}) - {tile.terrain.name}"
+            hover_text = f"({hover_hex.q}, {hover_hex.r}) - {tile.display_name}"
             hover_surf = self.font.render(hover_text, True, UI.hint_color)
             self.screen.blit(hover_surf, (self.screen_width - 250, self.screen_height - 52))
 

@@ -145,7 +145,7 @@ class HexRenderer:
             tile: The tile to draw
         """
         # Get terrain color
-        fill_color = tile.terrain.color
+        fill_color = tile.display_color
 
         # Determine border color based on selection state
         border_color = self.GRID_LINE_COLOR

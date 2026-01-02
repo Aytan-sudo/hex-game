@@ -98,26 +98,37 @@ def _create_tactical_map_config(
         'add_cities': False,
         'add_roads': False,
         'add_bridges': False,
+        'add_ruins': False,
     }
 
     terrain_configs = {
         TerrainType.PLAINS: {
             'forest_density': 0.15,
+            'hills_density': 0.10,
             'mountain_density': 0.02,
+            'mountain_cluster_size': 2,
+        },
+        TerrainType.HILLS: {
+            'forest_density': 0.10,
+            'hills_density': 0.45,
+            'mountain_density': 0.10,
             'mountain_cluster_size': 2,
         },
         TerrainType.FOREST: {
             'forest_density': 0.55,
+            'hills_density': 0.05,
             'mountain_density': 0.0,
             'swamp_near_water': True,
         },
         TerrainType.MOUNTAIN: {
             'forest_density': 0.10,
+            'hills_density': 0.20,
             'mountain_density': 0.35,
             'mountain_cluster_size': 4,
         },
         TerrainType.SWAMP: {
             'forest_density': 0.15,
+            'hills_density': 0.0,
             'mountain_density': 0.0,
             'add_lakes': True,
             'lake_count': 3,
@@ -125,11 +136,13 @@ def _create_tactical_map_config(
         },
         TerrainType.DESERT: {
             'forest_density': 0.0,
+            'hills_density': 0.20,
             'mountain_density': 0.15,
             'mountain_cluster_size': 2,
         },
         TerrainType.ROAD: {
             'forest_density': 0.20,
+            'hills_density': 0.05,
             'mountain_density': 0.0,
         },
     }
@@ -169,10 +182,9 @@ def _generate_tactical_map(
 
 def _convert_plains_to_desert(tiles: Dict[Tuple[int, int], Tile]) -> Dict[Tuple[int, int], Tile]:
     """Convert plains tiles to desert for desert battles."""
-    desert_config = get_terrain_config(TerrainType.DESERT)
     for tile in tiles.values():
-        if tile.terrain.name == "Plains":
-            tile.terrain = desert_config
+        if tile.base_terrain == TerrainType.PLAINS:
+            tile.base_terrain = TerrainType.DESERT
     return tiles
 
 
@@ -182,12 +194,12 @@ def _add_tactical_road(
     height: int
 ) -> Dict[Tuple[int, int], Tile]:
     """Add a road crossing the tactical battlefield."""
-    road_config = get_terrain_config(TerrainType.ROAD)
+    from game.terrain import OverlayType
     mid_r = height // 2
     for q in range(width):
         r = mid_r + (q % 3 - 1)
         if (q, r) in tiles and tiles[(q, r)].is_passable:
-            tiles[(q, r)].terrain = road_config
+            tiles[(q, r)].overlay = OverlayType.ROAD
     return tiles
 
 
@@ -628,7 +640,7 @@ class TacticalRenderer:
         battle: TacticalBattle
     ) -> Tuple[int, int, int]:
         """Get tile color with highlights."""
-        color = tile.terrain.color
+        color = tile.display_color
 
         if coord_tuple in battle.valid_moves:
             color = tuple(min(255, c + 40) for c in color)

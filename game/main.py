@@ -71,13 +71,13 @@ def create_test_units(tiles: dict, p1_count: int, p2_count: int) -> list[Army]:
     # Player 1 positions (left side)
     player1_positions = [
         coord for coord in tile_list
-        if coord[0] < mid_q - 1 and tiles[coord].terrain.movement_cost > 0
+        if coord[0] < mid_q - 1 and tiles[coord].get_movement_cost() > 0
     ]
 
     # Player 2 positions (right side)
     player2_positions = [
         coord for coord in tile_list
-        if coord[0] > mid_q + 1 and tiles[coord].terrain.movement_cost > 0
+        if coord[0] > mid_q + 1 and tiles[coord].get_movement_cost() > 0
     ]
 
     # Create Player 1 armies
@@ -128,12 +128,12 @@ def create_test_heroes(tiles: dict, armies: list) -> list[Hero]:
     # Find passable positions for heroes
     player1_positions = [
         coord for coord in tile_list
-        if coord[0] < mid_q - 5 and tiles[coord].terrain.movement_cost > 0
+        if coord[0] < mid_q - 5 and tiles[coord].get_movement_cost() > 0
         and tiles[coord].unit is None
     ]
     player2_positions = [
         coord for coord in tile_list
-        if coord[0] > mid_q + 5 and tiles[coord].terrain.movement_cost > 0
+        if coord[0] > mid_q + 5 and tiles[coord].get_movement_cost() > 0
         and tiles[coord].unit is None
     ]
 

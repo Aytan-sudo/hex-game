@@ -109,7 +109,7 @@ class CombatSystem:
         defender_terrain_bonus = 0
 
         if defender_tile:
-            defender_terrain_bonus = defender_tile.terrain.defense_bonus
+            defender_terrain_bonus = defender_tile.defense_bonus
 
         # Calculate attack damage
         attacker_power = self._calculate_attack_damage(
@@ -171,7 +171,7 @@ class CombatSystem:
         """
         defender_terrain_bonus = 0
         if defender_tile:
-            defender_terrain_bonus = defender_tile.terrain.defense_bonus
+            defender_terrain_bonus = defender_tile.defense_bonus
 
         # Expected damage to defender
         attack_power = attacker.get_attack_power()

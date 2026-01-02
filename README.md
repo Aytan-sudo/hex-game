@@ -85,17 +85,31 @@ hex-game/
 
 ## Terrains
 
+Le système de terrain est composé de **terrains de base** et de **constructions** (overlays).
+Les constructions peuvent être placées sur n'importe quel terrain de base (ex: ville en plaine, route en forêt).
+
+### Terrains de base
+
 | Terrain | Coût mouvement | Bonus défense | Description |
 |---------|----------------|---------------|-------------|
 | Plaine | 1 | 0 | Terrain de base |
+| Collines | 2 | +2 | Terrain vallonné |
 | Forêt | 2 | +2 | Couverture naturelle |
 | Montagne | 3 | +4 | Massifs montagneux |
 | Eau | Infranchissable | - | Rivières et lacs |
 | Marais | 3 | +1 | Près de l'eau |
-| Désert | 2 | 0 | Terrain aride |
-| Route | 1 | -1 | Relie les villes |
-| Ville | 1 | +3 | Points stratégiques |
-| Pont | 1 | -2 | Traverse l'eau |
+| Désert | 2 | -1 | Terrain aride |
+
+### Constructions (overlays)
+
+| Construction | Effet mouvement | Bonus défense | Description |
+|--------------|-----------------|---------------|-------------|
+| Route | Réduit à 1 | -1 | Relie les villes |
+| Ville | Réduit à 1 | +3 | Points stratégiques |
+| Pont | Rend franchissable | -2 | Traverse l'eau |
+| Ruines | Aucun | +1 | Anciennes structures |
+
+Les bonus de défense des constructions s'ajoutent à ceux du terrain de base.
 
 ## Unités
 
@@ -134,6 +148,7 @@ Quand une armée attaque une autre, une bataille tactique s'ouvre :
 
 Le terrain de la carte tactique dépend du terrain stratégique :
 - **Plaine** : champ ouvert avec quelques forêts
+- **Collines** : terrain vallonné avec positions défensives
 - **Forêt** : forêt dense avec clairières
 - **Montagne** : passes et plateaux rocheux
 - **Marais** : terrain marécageux avec mares
