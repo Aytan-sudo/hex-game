@@ -36,6 +36,7 @@ python game/main.py
 | Touche | Action |
 |--------|--------|
 | Flèches | Déplacer la carte |
+| Maj + Flèches | Déplacer la carte rapidement |
 | Clic molette + glisser | Déplacer la carte (drag) |
 | Clic droit + glisser | Déplacer la carte (drag trackpad) |
 | +/- | Zoom avant/arrière |
@@ -64,9 +65,12 @@ hex-game/
 │   ├── unit.py             # Classes Unit, Army, Hero
 │   ├── camera.py           # Caméra avec zoom multi-niveaux
 │   ├── combat.py           # Système de combat
+│   ├── pathfinding.py      # Algorithmes BFS et Dijkstra
+│   ├── input_handler.py    # Gestion caméra (drag, zoom, scroll)
 │   └── renderer.py         # Rendu Pygame
 ├── game/                   # Implémentation concrète du jeu
 │   ├── main.py             # Point d'entrée et menu
+│   ├── config.py           # Configuration centralisée
 │   ├── strategic_map.py    # Carte stratégique (armées, héros)
 │   ├── tactical_map.py     # Carte tactique (combats)
 │   ├── map_generator.py    # Génération procédurale

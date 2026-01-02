@@ -1,9 +1,8 @@
 # TODO - Hex Strategy Game
 
-## Carte Tactique - Améliorations futures
+## Carte Tactique - Améliorations
 
-### Génération contextuelle (EN COURS)
-- [x] Adapter la génération selon le terrain stratégique
+### Génération contextuelle
 - [ ] Combat urbain (ville) - génération de rues, bâtiments, places
 - [ ] Combat sur pont - rivière traversant la carte avec pont au centre
 
@@ -18,17 +17,16 @@
 - [ ] Flanquement : Bonus si attaque depuis plusieurs directions
 - [ ] Moral : Fuite possible si HP < 25%
 - [ ] Fatigue : Malus après plusieurs tours de combat
+- [ ] Animation de déplacement case par case (comme carte stratégique)
 
 ---
 
 ## Carte Stratégique - Personnages
 
-### Héros (à implémenter)
-- [ ] **Héros** : Unité unique avec stats personnelles, niveau, expérience
-- [ ] Peut se déplacer seul sur la carte (1 tuile = 1 héros)
-- [ ] Peut rejoindre une armée (stackable)
-- [ ] Bonus à l'armée quand attaché (leadership, moral, etc.)
-- [ ] Compétences spéciales (magie, inspiration, etc.)
+### Héros - Extensions
+- [ ] Compétences spéciales (magie, inspiration, sorts)
+- [ ] Équipement (armes, armures, objets)
+- [ ] Arbre de talents par classe
 
 ### Autres personnages
 - [ ] **Éclaireur** : Révèle le brouillard de guerre, rapide
@@ -37,9 +35,8 @@
 - [ ] **Espion** : Sabotage, information sur armées ennemies
 
 ### Système de stack
-- [ ] Plusieurs personnages peuvent être sur la même case
-- [ ] Un héros peut commander une armée
 - [ ] Limite de personnages par case (ex: 3 max)
+- [ ] Plusieurs héros dans une armée
 
 ---
 
@@ -62,9 +59,10 @@
 
 ### Améliorations UI
 - [ ] Mini-carte
-- [ ] Liste des armées/héros
+- [ ] Liste des armées/héros avec raccourcis
 - [ ] Historique des combats
 - [ ] Sauvegarde/Chargement
+- [ ] Tooltip au survol des unités
 
 ### Brouillard de guerre
 - [ ] Cases non explorées masquées
@@ -81,11 +79,31 @@
 - [ ] Retraite si désavantage
 - [ ] Défense des villes
 
+### IA tactique
+- [ ] Positionnement intelligent des unités
+- [ ] Focus sur unités faibles
+- [ ] Utilisation du terrain
+
 ---
 
-## Priorités actuelles
+## Audio/Visuel
 
-1. ~~Génération carte tactique contextuelle~~
-2. **Héros sur carte stratégique** (EN COURS)
-3. Combat urbain
-4. Avantages tactiques de base
+### Sprites
+- [ ] Sprites pour les unités (remplacer les cercles)
+- [ ] Sprites pour les héros
+- [ ] Icônes de terrain
+- [ ] Animations d'attaque
+
+### Audio
+- [ ] Musique de fond
+- [ ] Sons de combat
+- [ ] Sons d'interface
+
+---
+
+## Priorités
+
+1. Combat urbain (ville)
+2. Avantages tactiques de base (couvert, hauteur)
+3. Mini-carte
+4. IA basique pour Player 2

@@ -19,19 +19,7 @@ from game.units import create_lancer, create_archer, create_cavalry, create_mage
 from game.heroes import create_hero
 from game.map_generator import MapConfig, MapGenerator
 from game.strategic_map import run_strategic_game
-
-
-# Game configuration defaults
-DEFAULT_CONFIG = {
-    'map_width': 100,
-    'map_height': 100,
-    'player1_armies': 3,
-    'player2_armies': 3,
-    'add_river': True,
-}
-
-# Hex size is now managed by Camera with zoom levels [24, 36, 48, 72, 96]
-# Default zoom index 2 = 48px
+from game.config import DEFAULT_GAME_CONFIG, UI
 
 
 def generate_test_map(width: int, height: int, add_river: bool = True, seed: int = None) -> dict[tuple[int, int], Tile]:
@@ -191,7 +179,7 @@ class MainMenu:
         self.screen_height = screen.get_height()
 
         # Configuration values
-        self.config = DEFAULT_CONFIG.copy()
+        self.config = DEFAULT_GAME_CONFIG.copy()
 
         # UI state
         self.selected_option = 0
@@ -276,7 +264,7 @@ class MainMenu:
 
     def _draw(self, mouse_pos: tuple[int, int]):
         # Background
-        self.screen.fill((20, 20, 35))
+        self.screen.fill(UI.screen_bg_color)
 
         # Title
         title = self.title_font.render("Hex Strategy Game", True, (255, 255, 255))

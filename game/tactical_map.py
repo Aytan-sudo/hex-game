@@ -6,21 +6,27 @@ Handles individual unit combat on a smaller battlefield.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
-from enum import Enum
 import random
 
 import pygame
 
 from engine.hex_grid import HexCoord, HexGrid
 from engine.tile import Tile
-from engine.unit import Unit, Army, ArmyUnit, UnitStats, UnitType
+from engine.unit import Army, ArmyUnit, UnitStats, UnitType
 from engine.combat import CombatSystem, CombatResult
 from engine.camera import Camera
-from game.terrain import TerrainType, TERRAIN_CONFIGS
+from engine.input_handler import CameraController
+from engine.pathfinding import calculate_valid_moves, calculate_path_cost
+from game.terrain import TerrainType, get_terrain_config
 from game.map_generator import MapConfig, MapGenerator
+from game.config import UI, INPUT, BATTLE, PLAYER_COLORS
 
+
+# =============================================================================
+# DATA CLASSES
+# =============================================================================
 
 @dataclass
 class TacticalUnit:
@@ -32,7 +38,7 @@ class TacticalUnit:
     position: Optional[HexCoord] = None
     movement_remaining: int = 0
     has_acted: bool = False
-    source_army_unit: Optional[ArmyUnit] = None  # Reference to original army unit
+    source_army_unit: Optional[ArmyUnit] = None
 
     @property
     def is_alive(self) -> bool:
@@ -71,16 +77,131 @@ class BattleReport:
         return len(self.attacker_survivors) > 0 and len(self.defender_survivors) > 0
 
 
+# =============================================================================
+# TACTICAL MAP GENERATION
+# =============================================================================
+
+def _create_tactical_map_config(
+    terrain: TerrainType,
+    width: int,
+    height: int,
+    seed: int
+) -> MapConfig:
+    """Create map configuration based on strategic terrain type."""
+    base_config = {
+        'width': width,
+        'height': height,
+        'seed': seed,
+        'add_river': False,
+        'add_lakes': False,
+        'swamp_near_water': False,
+        'add_cities': False,
+        'add_roads': False,
+        'add_bridges': False,
+    }
+
+    terrain_configs = {
+        TerrainType.PLAINS: {
+            'forest_density': 0.15,
+            'mountain_density': 0.02,
+            'mountain_cluster_size': 2,
+        },
+        TerrainType.FOREST: {
+            'forest_density': 0.55,
+            'mountain_density': 0.0,
+            'swamp_near_water': True,
+        },
+        TerrainType.MOUNTAIN: {
+            'forest_density': 0.10,
+            'mountain_density': 0.35,
+            'mountain_cluster_size': 4,
+        },
+        TerrainType.SWAMP: {
+            'forest_density': 0.15,
+            'mountain_density': 0.0,
+            'add_lakes': True,
+            'lake_count': 3,
+            'swamp_near_water': True,
+        },
+        TerrainType.DESERT: {
+            'forest_density': 0.0,
+            'mountain_density': 0.15,
+            'mountain_cluster_size': 2,
+        },
+        TerrainType.ROAD: {
+            'forest_density': 0.20,
+            'mountain_density': 0.0,
+        },
+    }
+
+    # Get terrain-specific config or use default
+    specific_config = terrain_configs.get(terrain, {
+        'forest_density': 0.20,
+        'mountain_density': 0.05,
+        'mountain_cluster_size': 2,
+        'add_lakes': True,
+        'lake_count': 1,
+        'swamp_near_water': True,
+    })
+
+    return MapConfig(**{**base_config, **specific_config})
+
+
+def _generate_tactical_map(
+    width: int,
+    height: int,
+    strategic_terrain: TerrainType,
+    seed: int
+) -> Dict[Tuple[int, int], Tile]:
+    """Generate a tactical battlefield based on the strategic terrain."""
+    config = _create_tactical_map_config(strategic_terrain, width, height, seed)
+    generator = MapGenerator(config)
+    tiles = generator.generate()
+
+    # Post-processing for specific terrain types
+    if strategic_terrain == TerrainType.DESERT:
+        tiles = _convert_plains_to_desert(tiles)
+    elif strategic_terrain == TerrainType.ROAD:
+        tiles = _add_tactical_road(tiles, width, height)
+
+    return tiles
+
+
+def _convert_plains_to_desert(tiles: Dict[Tuple[int, int], Tile]) -> Dict[Tuple[int, int], Tile]:
+    """Convert plains tiles to desert for desert battles."""
+    desert_config = get_terrain_config(TerrainType.DESERT)
+    for tile in tiles.values():
+        if tile.terrain.name == "Plains":
+            tile.terrain = desert_config
+    return tiles
+
+
+def _add_tactical_road(
+    tiles: Dict[Tuple[int, int], Tile],
+    width: int,
+    height: int
+) -> Dict[Tuple[int, int], Tile]:
+    """Add a road crossing the tactical battlefield."""
+    road_config = get_terrain_config(TerrainType.ROAD)
+    mid_r = height // 2
+    for q in range(width):
+        r = mid_r + (q % 3 - 1)
+        if (q, r) in tiles and tiles[(q, r)].is_passable:
+            tiles[(q, r)].terrain = road_config
+    return tiles
+
+
+# =============================================================================
+# TACTICAL BATTLE CLASS
+# =============================================================================
+
 class TacticalBattle:
     """
     Manages a tactical battle between two armies.
 
-    Creates a small battlefield (20x20) and places units from both armies.
+    Creates a small battlefield and places units from both armies.
     Combat is resolved turn by turn until one side is eliminated.
     """
-
-    MAP_WIDTH = 20
-    MAP_HEIGHT = 20
 
     def __init__(
         self,
@@ -99,8 +220,13 @@ class TacticalBattle:
         self.screen_width = screen.get_width()
         self.screen_height = screen.get_height()
 
-        # Generate tactical map based on strategic terrain
-        self.tiles = self._generate_tactical_map()
+        # Generate tactical map
+        self.tiles = _generate_tactical_map(
+            BATTLE.map_width,
+            BATTLE.map_height,
+            strategic_terrain,
+            self.seed
+        )
 
         # Create tactical units from armies
         self.attacker_units: List[TacticalUnit] = []
@@ -113,7 +239,6 @@ class TacticalBattle:
         # Turn management
         self.current_player_id = attacker.player_id
         self.turn_number = 1
-        self.max_turns = 20  # Auto-draw after 20 turns
 
         # Selection state
         self.selected_unit: Optional[TacticalUnit] = None
@@ -125,208 +250,49 @@ class TacticalBattle:
         self.battle_report: Optional[BattleReport] = None
         self.combat_log: List[str] = []
 
-        # Camera for tactical view
+        # Camera
         self.camera = Camera(self.screen_width, self.screen_height)
-        # Start at a comfortable zoom for 20x20
-        self.camera.zoom_index = 6  # 48px
+        self.camera.zoom_index = 6  # 48px - comfortable for tactical view
+        self._center_camera()
 
-        # Center camera on map
-        center_x = self.MAP_WIDTH * self.camera.hex_size * 1.5
-        center_y = self.MAP_HEIGHT * self.camera.hex_size * 1.3
+    def _center_camera(self):
+        """Center camera on the tactical map."""
+        center_x = BATTLE.map_width * self.camera.hex_size * 1.5
+        center_y = BATTLE.map_height * self.camera.hex_size * 1.3
         self.camera.set_offset(
             self.screen_width / 2 - center_x / 2,
             self.screen_height / 2 - center_y / 2
         )
 
-    def _generate_tactical_map(self) -> Dict[Tuple[int, int], Tile]:
-        """
-        Generate a tactical battlefield based on the strategic terrain.
-
-        Different strategic terrains produce different tactical maps:
-        - Plains: Open field with scattered forests
-        - Forest: Dense forest with clearings
-        - Mountain: Mountain passes and plateaus
-        - Swamp: Marshy terrain with water pools
-        - Desert: Sandy terrain with rocky outcrops
-        - Road: Open terrain with a road crossing
-        """
-        terrain = self.strategic_terrain
-
-        # Configure generation based on strategic terrain
-        if terrain == TerrainType.PLAINS:
-            config = MapConfig(
-                width=self.MAP_WIDTH,
-                height=self.MAP_HEIGHT,
-                seed=self.seed,
-                forest_density=0.15,
-                mountain_density=0.02,
-                mountain_cluster_size=2,
-                add_river=False,
-                add_lakes=False,
-                swamp_near_water=False,
-                add_cities=False,
-                add_roads=False,
-                add_bridges=False,
-            )
-
-        elif terrain == TerrainType.FOREST:
-            config = MapConfig(
-                width=self.MAP_WIDTH,
-                height=self.MAP_HEIGHT,
-                seed=self.seed,
-                forest_density=0.55,  # Dense forest
-                mountain_density=0.0,
-                add_river=False,
-                add_lakes=False,
-                swamp_near_water=True,
-                add_cities=False,
-                add_roads=False,
-                add_bridges=False,
-            )
-
-        elif terrain == TerrainType.MOUNTAIN:
-            config = MapConfig(
-                width=self.MAP_WIDTH,
-                height=self.MAP_HEIGHT,
-                seed=self.seed,
-                forest_density=0.10,
-                mountain_density=0.35,  # Lots of mountains
-                mountain_cluster_size=4,
-                add_river=False,
-                add_lakes=False,
-                swamp_near_water=False,
-                add_cities=False,
-                add_roads=False,
-                add_bridges=False,
-            )
-
-        elif terrain == TerrainType.SWAMP:
-            config = MapConfig(
-                width=self.MAP_WIDTH,
-                height=self.MAP_HEIGHT,
-                seed=self.seed,
-                forest_density=0.15,
-                mountain_density=0.0,
-                add_river=False,
-                add_lakes=True,
-                lake_count=3,  # Multiple water pools
-                swamp_near_water=True,
-                add_cities=False,
-                add_roads=False,
-                add_bridges=False,
-            )
-
-        elif terrain == TerrainType.DESERT:
-            config = MapConfig(
-                width=self.MAP_WIDTH,
-                height=self.MAP_HEIGHT,
-                seed=self.seed,
-                forest_density=0.0,  # No forests in desert
-                mountain_density=0.15,  # Rocky outcrops
-                mountain_cluster_size=2,
-                add_river=False,
-                add_lakes=False,
-                swamp_near_water=False,
-                add_cities=False,
-                add_roads=False,
-                add_bridges=False,
-            )
-
-        elif terrain == TerrainType.ROAD:
-            # Road battle - mostly open with a road
-            config = MapConfig(
-                width=self.MAP_WIDTH,
-                height=self.MAP_HEIGHT,
-                seed=self.seed,
-                forest_density=0.20,
-                mountain_density=0.0,
-                add_river=False,
-                add_lakes=False,
-                swamp_near_water=False,
-                add_cities=False,
-                add_roads=False,  # We'll add a road manually
-                add_bridges=False,
-            )
-
-        else:
-            # Default/fallback (City, Bridge, Water, etc.)
-            config = MapConfig(
-                width=self.MAP_WIDTH,
-                height=self.MAP_HEIGHT,
-                seed=self.seed,
-                forest_density=0.20,
-                mountain_density=0.05,
-                mountain_cluster_size=2,
-                add_river=False,
-                add_lakes=True,
-                lake_count=1,
-                swamp_near_water=True,
-                add_cities=False,
-                add_roads=False,
-                add_bridges=False,
-            )
-
-        generator = MapGenerator(config)
-        tiles = generator.generate()
-
-        # Post-processing for specific terrain types
-        if terrain == TerrainType.DESERT:
-            # Convert plains to desert
-            tiles = self._convert_plains_to_desert(tiles)
-
-        elif terrain == TerrainType.ROAD:
-            # Add a road crossing the battlefield
-            tiles = self._add_tactical_road(tiles)
-
-        return tiles
-
-    def _convert_plains_to_desert(self, tiles: Dict[Tuple[int, int], Tile]) -> Dict[Tuple[int, int], Tile]:
-        """Convert plains tiles to desert for desert battles."""
-        from game.terrain import get_terrain_config
-        desert_config = get_terrain_config(TerrainType.DESERT)
-
-        for tile in tiles.values():
-            if tile.terrain.name == "Plains":
-                tile.terrain = desert_config
-
-        return tiles
-
-    def _add_tactical_road(self, tiles: Dict[Tuple[int, int], Tile]) -> Dict[Tuple[int, int], Tile]:
-        """Add a road crossing the tactical battlefield."""
-        from game.terrain import get_terrain_config
-        road_config = get_terrain_config(TerrainType.ROAD)
-
-        # Road from left to right through the middle
-        mid_r = self.MAP_HEIGHT // 2
-        for q in range(self.MAP_WIDTH):
-            # Slight curve using offset
-            r = mid_r + (q % 3 - 1)
-            if (q, r) in tiles and tiles[(q, r)].is_passable:
-                tiles[(q, r)].terrain = road_config
-
-        return tiles
-
     def _deploy_units(self):
         """Deploy units from both armies onto the battlefield."""
-        # Get passable tiles on each side
         left_tiles = [
             (q, r) for (q, r), tile in self.tiles.items()
-            if q < self.MAP_WIDTH // 3 and tile.is_passable
+            if q < BATTLE.map_width // 3 and tile.is_passable
         ]
         right_tiles = [
             (q, r) for (q, r), tile in self.tiles.items()
-            if q > 2 * self.MAP_WIDTH // 3 and tile.is_passable
+            if q > 2 * BATTLE.map_width // 3 and tile.is_passable
         ]
 
         random.seed(self.seed)
         random.shuffle(left_tiles)
         random.shuffle(right_tiles)
 
-        # Deploy attacker units (left side)
+        self._deploy_army_units(self.attacker, left_tiles, self.attacker_units)
+        self._deploy_army_units(self.defender, right_tiles, self.defender_units)
+
+    def _deploy_army_units(
+        self,
+        army: Army,
+        positions: List[Tuple[int, int]],
+        target_list: List[TacticalUnit]
+    ):
+        """Deploy units from an army to given positions."""
         deploy_idx = 0
-        for army_unit in self.attacker.units:
+        for army_unit in army.units:
             for i in range(army_unit.count):
-                if deploy_idx >= len(left_tiles):
+                if deploy_idx >= len(positions):
                     break
 
                 tactical_unit = TacticalUnit(
@@ -340,55 +306,26 @@ class TacticalBattle:
                         movement=army_unit.base_stats.movement,
                         range=army_unit.base_stats.range,
                     ),
-                    player_id=self.attacker.player_id,
-                    position=HexCoord(*left_tiles[deploy_idx]),
+                    player_id=army.player_id,
+                    position=HexCoord(*positions[deploy_idx]),
                     movement_remaining=army_unit.base_stats.movement,
                     source_army_unit=army_unit,
                 )
-                self.tiles[left_tiles[deploy_idx]].unit = tactical_unit
-                self.attacker_units.append(tactical_unit)
-                deploy_idx += 1
-
-        # Deploy defender units (right side)
-        deploy_idx = 0
-        for army_unit in self.defender.units:
-            for i in range(army_unit.count):
-                if deploy_idx >= len(right_tiles):
-                    break
-
-                tactical_unit = TacticalUnit(
-                    name=f"{army_unit.name} {i+1}",
-                    unit_type=army_unit.unit_type,
-                    stats=UnitStats(
-                        max_hp=army_unit.base_stats.max_hp,
-                        current_hp=army_unit.base_stats.current_hp,
-                        attack=army_unit.base_stats.attack,
-                        defense=army_unit.base_stats.defense,
-                        movement=army_unit.base_stats.movement,
-                        range=army_unit.base_stats.range,
-                    ),
-                    player_id=self.defender.player_id,
-                    position=HexCoord(*right_tiles[deploy_idx]),
-                    movement_remaining=army_unit.base_stats.movement,
-                    source_army_unit=army_unit,
-                )
-                self.tiles[right_tiles[deploy_idx]].unit = tactical_unit
-                self.defender_units.append(tactical_unit)
+                self.tiles[positions[deploy_idx]].unit = tactical_unit
+                target_list.append(tactical_unit)
                 deploy_idx += 1
 
     def get_units_for_player(self, player_id: int) -> List[TacticalUnit]:
         """Get all living units for a player."""
         if player_id == self.attacker.player_id:
             return [u for u in self.attacker_units if u.is_alive]
-        else:
-            return [u for u in self.defender_units if u.is_alive]
+        return [u for u in self.defender_units if u.is_alive]
 
     def get_enemy_units(self, player_id: int) -> List[TacticalUnit]:
         """Get enemy units."""
         if player_id == self.attacker.player_id:
             return [u for u in self.defender_units if u.is_alive]
-        else:
-            return [u for u in self.attacker_units if u.is_alive]
+        return [u for u in self.attacker_units if u.is_alive]
 
     def select_unit(self, unit: Optional[TacticalUnit]):
         """Select a unit and calculate valid moves/attacks."""
@@ -403,54 +340,25 @@ class TacticalBattle:
             self.selected_unit = None
             return
 
-        # Calculate valid moves
         if unit.movement_remaining > 0:
             self.valid_moves = self._calculate_valid_moves(unit)
 
-        # Calculate valid attacks
         if not unit.has_acted:
             self.valid_attacks = self._calculate_valid_attacks(unit)
 
     def _calculate_valid_moves(self, unit: TacticalUnit) -> Set[Tuple[int, int]]:
-        """Calculate valid move destinations using BFS."""
-        valid = set()
+        """Calculate valid move destinations using pathfinding module."""
         start = unit.position.to_tuple()
 
-        queue = [(start, unit.movement_remaining)]
-        visited = {start: unit.movement_remaining}
+        def can_move_to(tile: Tile, pos: Tuple[int, int]) -> bool:
+            return tile.unit is None
 
-        while queue:
-            current_pos, remaining = queue.pop(0)
-            current_coord = HexCoord(*current_pos)
-
-            for neighbor in current_coord.neighbors():
-                neighbor_tuple = neighbor.to_tuple()
-
-                if neighbor_tuple not in self.tiles:
-                    continue
-
-                tile = self.tiles[neighbor_tuple]
-
-                if not tile.is_passable:
-                    continue
-
-                move_cost = tile.get_movement_cost()
-                new_remaining = remaining - move_cost
-
-                if new_remaining < 0:
-                    continue
-
-                if neighbor_tuple in visited and visited[neighbor_tuple] >= new_remaining:
-                    continue
-
-                visited[neighbor_tuple] = new_remaining
-
-                if tile.unit is None:
-                    valid.add(neighbor_tuple)
-
-                queue.append((neighbor_tuple, new_remaining))
-
-        return valid
+        return calculate_valid_moves(
+            start,
+            unit.movement_remaining,
+            self.tiles,
+            can_move_to
+        )
 
     def _calculate_valid_attacks(self, unit: TacticalUnit) -> Set[Tuple[int, int]]:
         """Calculate valid attack targets."""
@@ -458,7 +366,6 @@ class TacticalBattle:
         position = unit.position
         attack_range = unit.stats.range
 
-        # Check all hexes within range
         for q in range(-attack_range, attack_range + 1):
             for r in range(max(-attack_range, -q - attack_range),
                           min(attack_range, -q + attack_range) + 1):
@@ -488,59 +395,20 @@ class TacticalBattle:
         if target_tuple not in self.valid_moves:
             return False
 
-        # Calculate path cost
         source_tuple = self.selected_unit.position.to_tuple()
-        path_cost = self._calculate_path_cost(source_tuple, target_tuple)
+        path_cost = calculate_path_cost(source_tuple, target_tuple, self.tiles)
 
         if path_cost > self.selected_unit.movement_remaining:
             return False
 
-        # Move the unit
+        # Execute move
         self.tiles[source_tuple].unit = None
         self.tiles[target_tuple].unit = self.selected_unit
         self.selected_unit.position = target
         self.selected_unit.movement_remaining -= path_cost
 
-        # Update valid moves/attacks
         self.select_unit(self.selected_unit)
-
         return True
-
-    def _calculate_path_cost(self, start: Tuple[int, int], end: Tuple[int, int]) -> int:
-        """Calculate minimum movement cost using Dijkstra."""
-        import heapq
-
-        distances = {start: 0}
-        pq = [(0, start)]
-
-        while pq:
-            current_dist, current = heapq.heappop(pq)
-
-            if current == end:
-                return current_dist
-
-            if current_dist > distances.get(current, float('inf')):
-                continue
-
-            current_coord = HexCoord(*current)
-
-            for neighbor in current_coord.neighbors():
-                neighbor_tuple = neighbor.to_tuple()
-
-                if neighbor_tuple not in self.tiles:
-                    continue
-
-                tile = self.tiles[neighbor_tuple]
-                if not tile.is_passable:
-                    continue
-
-                new_dist = current_dist + tile.get_movement_cost()
-
-                if new_dist < distances.get(neighbor_tuple, float('inf')):
-                    distances[neighbor_tuple] = new_dist
-                    heapq.heappush(pq, (new_dist, neighbor_tuple))
-
-        return 999
 
     def try_attack(self, target: HexCoord) -> Optional[CombatResult]:
         """Try to attack enemy at target position."""
@@ -557,7 +425,6 @@ class TacticalBattle:
 
         attacker = self.selected_unit
         defender = target_tile.unit
-
         attacker_tile = self.tiles.get(attacker.position.to_tuple())
 
         # Resolve combat
@@ -567,6 +434,21 @@ class TacticalBattle:
         )
 
         # Log combat
+        self._log_combat(attacker, defender, result)
+
+        # Handle deaths
+        self._handle_deaths(attacker, defender, attacker_tile, target_tile)
+
+        # Check for battle end
+        self._check_battle_end()
+
+        if self.selected_unit:
+            self.select_unit(self.selected_unit)
+
+        return result
+
+    def _log_combat(self, attacker: TacticalUnit, defender: TacticalUnit, result: CombatResult):
+        """Log combat result."""
         log_msg = f"{attacker.name} attacks {defender.name}: "
         if result.defender_survived:
             log_msg += f"-{result.defender_damage} HP"
@@ -576,43 +458,39 @@ class TacticalBattle:
             log_msg += "KILLED!"
         self.combat_log.append(log_msg)
 
-        # Handle deaths
+    def _handle_deaths(
+        self,
+        attacker: TacticalUnit,
+        defender: TacticalUnit,
+        attacker_tile: Tile,
+        target_tile: Tile
+    ):
+        """Handle unit deaths after combat."""
         if not defender.is_alive:
             target_tile.unit = None
-            if defender in self.defender_units:
-                self.defender_units.remove(defender)
-            elif defender in self.attacker_units:
-                self.attacker_units.remove(defender)
+            self._remove_unit(defender)
 
         if not attacker.is_alive:
-            attacker_tile = self.tiles.get(attacker.position.to_tuple())
             if attacker_tile:
                 attacker_tile.unit = None
-            if attacker in self.attacker_units:
-                self.attacker_units.remove(attacker)
-            elif attacker in self.defender_units:
-                self.defender_units.remove(attacker)
+            self._remove_unit(attacker)
             self.selected_unit = None
 
-        # Check for battle end
-        self._check_battle_end()
-
-        # Update selection
-        if self.selected_unit:
-            self.select_unit(self.selected_unit)
-
-        return result
+    def _remove_unit(self, unit: TacticalUnit):
+        """Remove a unit from its list."""
+        if unit in self.defender_units:
+            self.defender_units.remove(unit)
+        elif unit in self.attacker_units:
+            self.attacker_units.remove(unit)
 
     def end_turn(self):
         """End current player's turn."""
-        # Switch player
         if self.current_player_id == self.attacker.player_id:
             self.current_player_id = self.defender.player_id
         else:
             self.current_player_id = self.attacker.player_id
             self.turn_number += 1
 
-        # Reset units for current player
         for unit in self.get_units_for_player(self.current_player_id):
             unit.start_turn()
 
@@ -620,8 +498,7 @@ class TacticalBattle:
         self.valid_moves.clear()
         self.valid_attacks.clear()
 
-        # Check for auto-draw
-        if self.turn_number > self.max_turns:
+        if self.turn_number > BATTLE.max_turns:
             self._end_battle(is_draw=True)
 
     def _check_battle_end(self):
@@ -638,24 +515,9 @@ class TacticalBattle:
         """End the battle and create report."""
         self.battle_over = True
 
-        # Count survivors by unit type
-        attacker_survivors = {}
-        for unit in self.attacker_units:
-            if unit.is_alive and unit.source_army_unit:
-                name = unit.source_army_unit.name
-                if name not in attacker_survivors:
-                    attacker_survivors[name] = [0, unit.source_army_unit.count]
-                attacker_survivors[name][0] += 1
+        attacker_survivors = self._count_survivors(self.attacker_units, self.attacker)
+        defender_survivors = self._count_survivors(self.defender_units, self.defender)
 
-        defender_survivors = {}
-        for unit in self.defender_units:
-            if unit.is_alive and unit.source_army_unit:
-                name = unit.source_army_unit.name
-                if name not in defender_survivors:
-                    defender_survivors[name] = [0, unit.source_army_unit.count]
-                defender_survivors[name][0] += 1
-
-        # Calculate losses
         attacker_original = sum(au.count for au in self.attacker.units)
         defender_original = sum(du.count for du in self.defender.units)
         attacker_remaining = sum(s[0] for s in attacker_survivors.values())
@@ -675,34 +537,308 @@ class TacticalBattle:
             rounds=self.turn_number,
         )
 
+    def _count_survivors(
+        self,
+        units: List[TacticalUnit],
+        army: Army
+    ) -> Dict[str, List[int]]:
+        """Count surviving units by type."""
+        survivors = {}
+        for unit in units:
+            if unit.is_alive and unit.source_army_unit:
+                name = unit.source_army_unit.name
+                if name not in survivors:
+                    survivors[name] = [0, unit.source_army_unit.count]
+                survivors[name][0] += 1
+        return survivors
+
     def update_armies_after_battle(self):
         """Update the original armies with battle results."""
-        # Update attacker army
-        for army_unit in self.attacker.units[:]:  # Copy list to modify
+        self._update_army(self.attacker, self.attacker_units)
+        self._update_army(self.defender, self.defender_units)
+
+    def _update_army(self, army: Army, tactical_units: List[TacticalUnit]):
+        """Update an army's unit counts based on survivors."""
+        for army_unit in army.units[:]:
             survivors = sum(
-                1 for u in self.attacker_units
+                1 for u in tactical_units
                 if u.is_alive and u.source_army_unit == army_unit
             )
             if survivors == 0:
-                self.attacker.units.remove(army_unit)
+                army.units.remove(army_unit)
             else:
                 army_unit.count = survivors
 
-        # Update defender army
-        for army_unit in self.defender.units[:]:
-            survivors = sum(
-                1 for u in self.defender_units
-                if u.is_alive and u.source_army_unit == army_unit
-            )
-            if survivors == 0:
-                self.defender.units.remove(army_unit)
-            else:
-                army_unit.count = survivors
+        army._recalculate_stats()
 
-        # Recalculate army stats
-        self.attacker._recalculate_stats()
-        self.defender._recalculate_stats()
 
+# =============================================================================
+# TACTICAL RENDERER
+# =============================================================================
+
+class TacticalRenderer:
+    """Handles all rendering for tactical battles."""
+
+    def __init__(self, screen: pygame.Surface, font: pygame.font.Font, title_font: pygame.font.Font):
+        self.screen = screen
+        self.font = font
+        self.title_font = title_font
+        self.screen_width = screen.get_width()
+        self.screen_height = screen.get_height()
+
+    def render_frame(
+        self,
+        battle: TacticalBattle,
+        hex_grid: HexGrid,
+        player_colors: Dict[int, Tuple[int, int, int]],
+        show_report: bool
+    ):
+        """Render a complete frame."""
+        self.screen.fill(UI.screen_bg_color)
+
+        self._render_tiles(battle, hex_grid)
+        self._render_units(battle, hex_grid, player_colors)
+        self._render_top_panel(battle, player_colors)
+        self._render_bottom_panel(battle)
+        self._render_combat_log(battle)
+
+        if show_report and battle.battle_report:
+            self._render_battle_report(battle.battle_report)
+
+    def _render_tiles(self, battle: TacticalBattle, hex_grid: HexGrid):
+        """Render battlefield tiles."""
+        for coord_tuple, tile in battle.tiles.items():
+            coord = HexCoord(*coord_tuple)
+            center = hex_grid.hex_to_pixel(coord, battle.camera.offset)
+
+            # Culling
+            if not self._is_on_screen(center, battle.camera.hex_size):
+                continue
+
+            vertices = hex_grid.get_hex_corners(coord, battle.camera.offset)
+            color = self._get_tile_color(tile, coord_tuple, battle)
+
+            pygame.draw.polygon(self.screen, color, vertices)
+            pygame.draw.polygon(self.screen, (50, 50, 60), vertices, 1)
+
+    def _get_tile_color(
+        self,
+        tile: Tile,
+        coord_tuple: Tuple[int, int],
+        battle: TacticalBattle
+    ) -> Tuple[int, int, int]:
+        """Get tile color with highlights."""
+        color = tile.terrain.color
+
+        if coord_tuple in battle.valid_moves:
+            color = tuple(min(255, c + 40) for c in color)
+        elif coord_tuple in battle.valid_attacks:
+            color = UI.attack_highlight_color
+
+        return color
+
+    def _render_units(
+        self,
+        battle: TacticalBattle,
+        hex_grid: HexGrid,
+        player_colors: Dict[int, Tuple[int, int, int]]
+    ):
+        """Render all units on the battlefield."""
+        all_units = battle.attacker_units + battle.defender_units
+        for unit in all_units:
+            if not unit.is_alive or unit.position is None:
+                continue
+
+            center = hex_grid.hex_to_pixel(unit.position, battle.camera.offset)
+            x, y = int(center[0]), int(center[1])
+            color = player_colors.get(unit.player_id, (200, 200, 200))
+            radius = int(battle.camera.hex_size * 0.4)
+
+            # Unit circle
+            pygame.draw.circle(self.screen, color, (x, y), radius)
+            pygame.draw.circle(self.screen, (255, 255, 255), (x, y), radius, 2)
+
+            # Selected highlight
+            if unit == battle.selected_unit:
+                pygame.draw.circle(self.screen, UI.selection_color, (x, y), radius + 4, 3)
+
+            # Unit type letter
+            letter = unit.name[0].upper()
+            text = self.font.render(letter, True, UI.text_color)
+            text_rect = text.get_rect(center=(x, y))
+            self.screen.blit(text, text_rect)
+
+            # HP bar
+            self._render_hp_bar(x, y, radius, unit, battle.camera.hex_size)
+
+    def _render_hp_bar(self, x: int, y: int, radius: int, unit: TacticalUnit, hex_size: int):
+        """Render HP bar under a unit."""
+        hp_width = int(hex_size * 0.8)
+        hp_height = 4
+        hp_x = x - hp_width // 2
+        hp_y = y + radius + 5
+
+        pygame.draw.rect(self.screen, (60, 60, 60), (hp_x, hp_y, hp_width, hp_height))
+
+        hp_pct = unit.stats.current_hp / unit.stats.max_hp
+        if hp_pct > 0.5:
+            hp_color = (100, 200, 100)
+        elif hp_pct > 0.25:
+            hp_color = (200, 200, 100)
+        else:
+            hp_color = (200, 100, 100)
+
+        pygame.draw.rect(self.screen, hp_color, (hp_x, hp_y, int(hp_width * hp_pct), hp_height))
+
+    def _render_top_panel(
+        self,
+        battle: TacticalBattle,
+        player_colors: Dict[int, Tuple[int, int, int]]
+    ):
+        """Render top UI panel."""
+        panel_height = 60
+        pygame.draw.rect(self.screen, UI.panel_bg_color, (0, 0, self.screen_width, panel_height))
+
+        # Title
+        title = self.title_font.render("TACTICAL BATTLE", True, UI.text_color)
+        self.screen.blit(title, (self.screen_width // 2 - title.get_width() // 2, 5))
+
+        # Turn info
+        current_name = (battle.attacker.name if battle.current_player_id == battle.attacker.player_id
+                       else battle.defender.name)
+        current_color = player_colors.get(battle.current_player_id, (200, 200, 200))
+        turn_text = self.font.render(f"Turn {battle.turn_number} - {current_name}", True, current_color)
+        self.screen.blit(turn_text, (10, 35))
+
+        # Controls hint
+        hint = self.font.render("Space: End Turn | ESC: Retreat", True, UI.hint_color)
+        self.screen.blit(hint, (self.screen_width - 250, 35))
+
+        # Unit counts
+        attacker_count = len([u for u in battle.attacker_units if u.is_alive])
+        defender_count = len([u for u in battle.defender_units if u.is_alive])
+
+        att_color = player_colors.get(battle.attacker.player_id, (100, 100, 255))
+        def_color = player_colors.get(battle.defender.player_id, (255, 100, 100))
+
+        att_text = self.font.render(f"{battle.attacker.name}: {attacker_count} units", True, att_color)
+        def_text = self.font.render(f"{battle.defender.name}: {defender_count} units", True, def_color)
+        self.screen.blit(att_text, (10, 8))
+        self.screen.blit(def_text, (250, 8))
+
+    def _render_bottom_panel(self, battle: TacticalBattle):
+        """Render bottom UI panel with selected unit info."""
+        panel_height = 50
+        pygame.draw.rect(
+            self.screen,
+            UI.panel_bg_color,
+            (0, self.screen_height - panel_height, self.screen_width, panel_height)
+        )
+
+        if battle.selected_unit:
+            unit = battle.selected_unit
+            info = (f"{unit.name} | HP: {unit.stats.current_hp}/{unit.stats.max_hp} | "
+                   f"ATK: {unit.stats.attack} | DEF: {unit.stats.defense} | "
+                   f"Move: {unit.movement_remaining}/{unit.stats.movement} | Range: {unit.stats.range}")
+            info_text = self.font.render(info, True, (255, 200, 100))
+            self.screen.blit(info_text, (10, self.screen_height - 35))
+
+    def _render_combat_log(self, battle: TacticalBattle):
+        """Render last 3 combat log entries."""
+        if battle.combat_log:
+            for i, log in enumerate(battle.combat_log[-3:]):
+                log_text = self.font.render(log, True, (180, 180, 180))
+                self.screen.blit(log_text, (10, 70 + i * 20))
+
+    def _render_battle_report(self, report: BattleReport):
+        """Render battle report overlay."""
+        # Semi-transparent overlay
+        overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.screen.blit(overlay, (0, 0))
+
+        # Report box
+        box_w, box_h = 500, 400
+        box_x = self.screen_width // 2 - box_w // 2
+        box_y = self.screen_height // 2 - box_h // 2
+
+        pygame.draw.rect(self.screen, (50, 50, 60), (box_x, box_y, box_w, box_h), border_radius=10)
+        pygame.draw.rect(self.screen, (100, 100, 120), (box_x, box_y, box_w, box_h), 3, border_radius=10)
+
+        # Title
+        result_text = "VICTORY!" if report.attacker_won else "DEFEAT!"
+        result_color = (100, 255, 100) if report.attacker_won else (255, 100, 100)
+        title = self.title_font.render(f"BATTLE REPORT - {result_text}", True, result_color)
+        self.screen.blit(title, (self.screen_width // 2 - title.get_width() // 2, box_y + 20))
+
+        y = box_y + 70
+
+        # Battle info
+        info = self.font.render(f"{report.attacker_name} vs {report.defender_name}", True, (200, 200, 200))
+        self.screen.blit(info, (self.screen_width // 2 - info.get_width() // 2, y))
+        y += 30
+
+        rounds = self.font.render(f"Battle lasted {report.rounds} rounds", True, (180, 180, 180))
+        self.screen.blit(rounds, (self.screen_width // 2 - rounds.get_width() // 2, y))
+        y += 40
+
+        # Survivors sections
+        y = self._render_survivors_section(
+            box_x, y,
+            f"{report.attacker_name} survivors:",
+            report.attacker_survivors,
+            (100, 100, 255),
+            (150, 150, 200)
+        )
+        y += 20
+        self._render_survivors_section(
+            box_x, y,
+            f"{report.defender_name} survivors:",
+            report.defender_survivors,
+            (255, 100, 100),
+            (200, 150, 150)
+        )
+
+        # Continue prompt
+        prompt = self.font.render("Press any key to continue...", True, (200, 200, 200))
+        self.screen.blit(prompt, (self.screen_width // 2 - prompt.get_width() // 2, box_y + box_h - 40))
+
+    def _render_survivors_section(
+        self,
+        box_x: int,
+        y: int,
+        title: str,
+        survivors: List[Tuple[str, int, int]],
+        title_color: Tuple[int, int, int],
+        text_color: Tuple[int, int, int]
+    ) -> int:
+        """Render a survivors section and return new y position."""
+        title_text = self.font.render(title, True, title_color)
+        self.screen.blit(title_text, (box_x + 30, y))
+        y += 25
+
+        if survivors:
+            for name, remaining, original in survivors:
+                surv = self.font.render(f"  {name}: {remaining}/{original}", True, text_color)
+                self.screen.blit(surv, (box_x + 30, y))
+                y += 20
+        else:
+            none = self.font.render("  All units lost!", True, (255, 100, 100))
+            self.screen.blit(none, (box_x + 30, y))
+            y += 20
+
+        return y
+
+    def _is_on_screen(self, center: Tuple[float, float], hex_size: int) -> bool:
+        """Check if a hex is visible on screen."""
+        margin = hex_size * 2
+        return (-margin < center[0] < self.screen_width + margin and
+                -margin < center[1] < self.screen_height + margin)
+
+
+# =============================================================================
+# MAIN GAME LOOP
+# =============================================================================
 
 def run_tactical_battle(
     screen: pygame.Surface,
@@ -719,25 +855,19 @@ def run_tactical_battle(
         attacker: The attacking army
         defender: The defending army
         player_colors: Color mapping for player IDs
-        strategic_terrain: The terrain type from the strategic map where battle occurs
+        strategic_terrain: The terrain type from the strategic map
 
     Returns the battle report when complete.
     """
     battle = TacticalBattle(attacker, defender, screen, strategic_terrain)
-
-    # Create hex grid for rendering
-    hex_grid = HexGrid(hex_size=battle.camera.hex_size, pointy_top=True)
+    camera_controller = CameraController(
+        battle.camera, INPUT.drag_threshold, INPUT.scroll_speed, INPUT.fast_scroll_multiplier
+    )
 
     font = pygame.font.Font(None, 24)
     title_font = pygame.font.Font(None, 36)
+    renderer = TacticalRenderer(screen, font, title_font)
     clock = pygame.time.Clock()
-
-    # Drag state
-    is_dragging = False
-    drag_start_pos = (0, 0)
-    drag_start_offset = (0.0, 0.0)
-    drag_button = None
-    drag_threshold = 5
 
     running = True
     show_report = False
@@ -747,227 +877,44 @@ def run_tactical_battle(
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                # Force end battle
                 if not battle.battle_over:
                     battle._end_battle(is_draw=True)
                 running = False
 
             elif event.type == pygame.KEYDOWN:
                 if show_report:
-                    # Any key closes report
                     running = False
                 elif event.key == pygame.K_ESCAPE:
-                    # ESC to retreat (auto-lose for attacker)
                     battle._end_battle(attacker_won=False)
                 elif event.key == pygame.K_SPACE:
                     battle.end_turn()
-                elif event.key in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
-                    if battle.camera.zoom_in():
-                        hex_grid = HexGrid(hex_size=battle.camera.hex_size, pointy_top=True)
-                elif event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
-                    if battle.camera.zoom_out():
-                        hex_grid = HexGrid(hex_size=battle.camera.hex_size, pointy_top=True)
+                else:
+                    camera_controller.handle_event(event, mouse_pos)
 
             elif event.type == pygame.MOUSEBUTTONDOWN and not show_report:
-                if event.button == 1:  # Left click
-                    clicked_hex = hex_grid.pixel_to_hex(mouse_pos[0], mouse_pos[1], battle.camera.offset)
-                    clicked_tuple = clicked_hex.to_tuple()
-
-                    if clicked_tuple not in battle.tiles:
-                        continue
-
-                    tile = battle.tiles[clicked_tuple]
-
-                    # Check attack
-                    if battle.selected_unit and clicked_tuple in battle.valid_attacks:
-                        battle.try_attack(clicked_hex)
-
-                    # Check move
-                    elif battle.selected_unit and clicked_tuple in battle.valid_moves:
-                        battle.try_move(clicked_hex)
-
-                    # Select unit
-                    elif tile.unit and tile.unit.player_id == battle.current_player_id:
-                        battle.select_unit(tile.unit)
-
-                    else:
-                        battle.select_unit(None)
-
-                elif event.button == 3:
-                    is_dragging = True
-                    drag_button = 3
-                    drag_start_pos = mouse_pos
-                    drag_start_offset = battle.camera.offset
-
-                elif event.button == 2:
-                    is_dragging = True
-                    drag_button = 2
-                    drag_start_pos = mouse_pos
-                    drag_start_offset = battle.camera.offset
+                if event.button == 1:
+                    _handle_left_click(battle, camera_controller.hex_grid, mouse_pos)
+                else:
+                    camera_controller.handle_event(event, mouse_pos)
 
             elif event.type == pygame.MOUSEBUTTONUP:
-                if event.button in (2, 3) and drag_button == event.button:
-                    dx = abs(mouse_pos[0] - drag_start_pos[0])
-                    dy = abs(mouse_pos[1] - drag_start_pos[1])
-                    was_drag = dx > drag_threshold or dy > drag_threshold
-
-                    if event.button == 3 and not was_drag:
+                if not camera_controller.handle_event(event, mouse_pos):
+                    # Right-click was not a drag - deselect
+                    if event.button == 3:
                         battle.select_unit(None)
 
-                    is_dragging = False
-                    drag_button = None
-
             elif event.type == pygame.MOUSEMOTION:
-                if is_dragging:
-                    dx = mouse_pos[0] - drag_start_pos[0]
-                    dy = mouse_pos[1] - drag_start_pos[1]
-                    battle.camera.set_offset(
-                        drag_start_offset[0] + dx,
-                        drag_start_offset[1] + dy
-                    )
+                camera_controller.handle_event(event, mouse_pos)
 
             elif event.type == pygame.MOUSEWHEEL:
-                mods = pygame.key.get_mods()
-                if mods & pygame.KMOD_CTRL:
-                    if event.y > 0:
-                        if battle.camera.zoom_in():
-                            hex_grid = HexGrid(hex_size=battle.camera.hex_size, pointy_top=True)
-                    elif event.y < 0:
-                        if battle.camera.zoom_out():
-                            hex_grid = HexGrid(hex_size=battle.camera.hex_size, pointy_top=True)
+                camera_controller.handle_event(event, mouse_pos)
 
-        # Keyboard scrolling
-        keys = pygame.key.get_pressed()
-        scroll_speed = 10
-        if keys[pygame.K_LEFT]:
-            battle.camera.move_offset(scroll_speed, 0)
-        if keys[pygame.K_RIGHT]:
-            battle.camera.move_offset(-scroll_speed, 0)
-        if keys[pygame.K_UP]:
-            battle.camera.move_offset(0, scroll_speed)
-        if keys[pygame.K_DOWN]:
-            battle.camera.move_offset(0, -scroll_speed)
+        camera_controller.handle_continuous_input()
 
-        # Check if battle ended
         if battle.battle_over and not show_report:
             show_report = True
 
-        # Render
-        screen.fill((30, 30, 40))
-
-        # Draw tiles
-        for coord_tuple, tile in battle.tiles.items():
-            coord = HexCoord(*coord_tuple)
-            center = hex_grid.hex_to_pixel(coord, battle.camera.offset)
-
-            # Check if on screen
-            if (center[0] < -battle.camera.hex_size * 2 or
-                center[0] > battle.screen_width + battle.camera.hex_size * 2 or
-                center[1] < -battle.camera.hex_size * 2 or
-                center[1] > battle.screen_height + battle.camera.hex_size * 2):
-                continue
-
-            vertices = hex_grid.get_hex_corners(coord, battle.camera.offset)
-
-            # Base terrain color
-            color = tile.terrain.color
-
-            # Highlight valid moves
-            if coord_tuple in battle.valid_moves:
-                color = tuple(min(255, c + 40) for c in color)
-
-            # Highlight valid attacks
-            if coord_tuple in battle.valid_attacks:
-                color = (255, 100, 100)
-
-            # Draw hex
-            pygame.draw.polygon(screen, color, vertices)
-            pygame.draw.polygon(screen, (50, 50, 60), vertices, 1)
-
-        # Draw units
-        all_units = battle.attacker_units + battle.defender_units
-        for unit in all_units:
-            if not unit.is_alive or unit.position is None:
-                continue
-
-            center = hex_grid.hex_to_pixel(unit.position, battle.camera.offset)
-            x, y = int(center[0]), int(center[1])
-
-            # Unit color
-            color = player_colors.get(unit.player_id, (200, 200, 200))
-
-            # Draw circle
-            radius = int(battle.camera.hex_size * 0.4)
-            pygame.draw.circle(screen, color, (x, y), radius)
-            pygame.draw.circle(screen, (255, 255, 255), (x, y), radius, 2)
-
-            # Selected highlight
-            if unit == battle.selected_unit:
-                pygame.draw.circle(screen, (255, 255, 100), (x, y), radius + 4, 3)
-
-            # Unit type letter
-            letter = unit.name[0].upper()
-            text = font.render(letter, True, (255, 255, 255))
-            text_rect = text.get_rect(center=(x, y))
-            screen.blit(text, text_rect)
-
-            # HP bar
-            hp_width = int(battle.camera.hex_size * 0.8)
-            hp_height = 4
-            hp_x = x - hp_width // 2
-            hp_y = y + radius + 5
-
-            # Background
-            pygame.draw.rect(screen, (60, 60, 60), (hp_x, hp_y, hp_width, hp_height))
-            # HP fill
-            hp_pct = unit.stats.current_hp / unit.stats.max_hp
-            hp_color = (100, 200, 100) if hp_pct > 0.5 else (200, 200, 100) if hp_pct > 0.25 else (200, 100, 100)
-            pygame.draw.rect(screen, hp_color, (hp_x, hp_y, int(hp_width * hp_pct), hp_height))
-
-        # UI Panel - Top
-        pygame.draw.rect(screen, (40, 40, 50), (0, 0, battle.screen_width, 60))
-
-        title = title_font.render("TACTICAL BATTLE", True, (255, 255, 255))
-        screen.blit(title, (battle.screen_width // 2 - title.get_width() // 2, 5))
-
-        # Turn info
-        current_name = attacker.name if battle.current_player_id == attacker.player_id else defender.name
-        current_color = player_colors.get(battle.current_player_id, (200, 200, 200))
-        turn_text = font.render(f"Turn {battle.turn_number} - {current_name}", True, current_color)
-        screen.blit(turn_text, (10, 35))
-
-        # Controls hint
-        hint = font.render("Space: End Turn | ESC: Retreat", True, (150, 150, 150))
-        screen.blit(hint, (battle.screen_width - 250, 35))
-
-        # Unit counts
-        attacker_count = len([u for u in battle.attacker_units if u.is_alive])
-        defender_count = len([u for u in battle.defender_units if u.is_alive])
-
-        att_text = font.render(f"{attacker.name}: {attacker_count} units", True, player_colors.get(attacker.player_id, (100, 100, 255)))
-        def_text = font.render(f"{defender.name}: {defender_count} units", True, player_colors.get(defender.player_id, (255, 100, 100)))
-        screen.blit(att_text, (10, 8))
-        screen.blit(def_text, (250, 8))
-
-        # Bottom panel - selected unit info
-        pygame.draw.rect(screen, (40, 40, 50), (0, battle.screen_height - 50, battle.screen_width, 50))
-
-        if battle.selected_unit:
-            unit = battle.selected_unit
-            info = f"{unit.name} | HP: {unit.stats.current_hp}/{unit.stats.max_hp} | ATK: {unit.stats.attack} | DEF: {unit.stats.defense} | Move: {unit.movement_remaining}/{unit.stats.movement} | Range: {unit.stats.range}"
-            info_text = font.render(info, True, (255, 200, 100))
-            screen.blit(info_text, (10, battle.screen_height - 35))
-
-        # Combat log (last 3 entries)
-        if battle.combat_log:
-            for i, log in enumerate(battle.combat_log[-3:]):
-                log_text = font.render(log, True, (180, 180, 180))
-                screen.blit(log_text, (10, 70 + i * 20))
-
-        # Battle report overlay
-        if show_report and battle.battle_report:
-            _draw_battle_report(screen, battle.battle_report, font, title_font)
-
+        renderer.render_frame(battle, camera_controller.hex_grid, player_colors, show_report)
         pygame.display.flip()
         clock.tick(60)
 
@@ -975,77 +922,28 @@ def run_tactical_battle(
     return battle.battle_report
 
 
-def _draw_battle_report(
-    screen: pygame.Surface,
-    report: BattleReport,
-    font: pygame.font.Font,
-    title_font: pygame.font.Font
+def _handle_left_click(
+    battle: TacticalBattle,
+    hex_grid: HexGrid,
+    mouse_pos: Tuple[int, int]
 ):
-    """Draw battle report overlay."""
-    sw, sh = screen.get_width(), screen.get_height()
+    """Handle left click on tactical map."""
+    clicked_hex = hex_grid.pixel_to_hex(mouse_pos[0], mouse_pos[1], battle.camera.offset)
+    clicked_tuple = clicked_hex.to_tuple()
 
-    # Semi-transparent overlay
-    overlay = pygame.Surface((sw, sh), pygame.SRCALPHA)
-    overlay.fill((0, 0, 0, 180))
-    screen.blit(overlay, (0, 0))
+    if clicked_tuple not in battle.tiles:
+        return
 
-    # Report box
-    box_w, box_h = 500, 400
-    box_x = sw // 2 - box_w // 2
-    box_y = sh // 2 - box_h // 2
+    tile = battle.tiles[clicked_tuple]
 
-    pygame.draw.rect(screen, (50, 50, 60), (box_x, box_y, box_w, box_h), border_radius=10)
-    pygame.draw.rect(screen, (100, 100, 120), (box_x, box_y, box_w, box_h), 3, border_radius=10)
-
-    # Title
-    result_text = "VICTORY!" if report.attacker_won else "DEFEAT!"
-    result_color = (100, 255, 100) if report.attacker_won else (255, 100, 100)
-    title = title_font.render(f"BATTLE REPORT - {result_text}", True, result_color)
-    screen.blit(title, (sw // 2 - title.get_width() // 2, box_y + 20))
-
-    y = box_y + 70
-
-    # Battle info
-    info = font.render(f"{report.attacker_name} vs {report.defender_name}", True, (200, 200, 200))
-    screen.blit(info, (sw // 2 - info.get_width() // 2, y))
-    y += 30
-
-    rounds = font.render(f"Battle lasted {report.rounds} rounds", True, (180, 180, 180))
-    screen.blit(rounds, (sw // 2 - rounds.get_width() // 2, y))
-    y += 40
-
-    # Attacker survivors
-    att_title = font.render(f"{report.attacker_name} survivors:", True, (100, 100, 255))
-    screen.blit(att_title, (box_x + 30, y))
-    y += 25
-
-    if report.attacker_survivors:
-        for name, remaining, original in report.attacker_survivors:
-            surv = font.render(f"  {name}: {remaining}/{original}", True, (150, 150, 200))
-            screen.blit(surv, (box_x + 30, y))
-            y += 20
+    # Check attack
+    if battle.selected_unit and clicked_tuple in battle.valid_attacks:
+        battle.try_attack(clicked_hex)
+    # Check move
+    elif battle.selected_unit and clicked_tuple in battle.valid_moves:
+        battle.try_move(clicked_hex)
+    # Select unit
+    elif tile.unit and tile.unit.player_id == battle.current_player_id:
+        battle.select_unit(tile.unit)
     else:
-        none = font.render("  All units lost!", True, (255, 100, 100))
-        screen.blit(none, (box_x + 30, y))
-        y += 20
-
-    y += 20
-
-    # Defender survivors
-    def_title = font.render(f"{report.defender_name} survivors:", True, (255, 100, 100))
-    screen.blit(def_title, (box_x + 30, y))
-    y += 25
-
-    if report.defender_survivors:
-        for name, remaining, original in report.defender_survivors:
-            surv = font.render(f"  {name}: {remaining}/{original}", True, (200, 150, 150))
-            screen.blit(surv, (box_x + 30, y))
-            y += 20
-    else:
-        none = font.render("  All units lost!", True, (255, 100, 100))
-        screen.blit(none, (box_x + 30, y))
-        y += 20
-
-    # Continue prompt
-    prompt = font.render("Press any key to continue...", True, (200, 200, 200))
-    screen.blit(prompt, (sw // 2 - prompt.get_width() // 2, box_y + box_h - 40))
+        battle.select_unit(None)
