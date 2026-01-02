@@ -261,6 +261,10 @@ class Hero(Unit):
     A hero is a unique, powerful unit that can lead armies.
 
     Heroes have individual stats, can level up, and provide bonuses to armies.
+    On the strategic map, heroes can:
+    - Move independently on their own tile
+    - Attach to an army to provide bonuses
+    - Stack with other heroes on the same tile
     """
 
     def __init__(
@@ -269,7 +273,8 @@ class Hero(Unit):
         stats: UnitStats,
         player_id: int = 0,
         level: int = 1,
-        experience: int = 0
+        experience: int = 0,
+        hero_class: str = "Warrior"
     ):
         super().__init__(
             name=name,
@@ -280,11 +285,16 @@ class Hero(Unit):
 
         self.level = level
         self.experience = experience
+        self.hero_class = hero_class  # Warrior, Mage, Scout, etc.
         self.army: Optional[Army] = None  # Army this hero is leading
+        self.position: Optional[HexCoord] = None  # Position on strategic map (when not in army)
 
         # Hero-specific bonus stats
         self.leadership = 10  # Bonus to army under command
         self.magic = 0  # For future spell system
+
+        # Visual
+        self.portrait_letter = name[0].upper()  # First letter for display
 
     def get_attack_power(self) -> int:
         """Hero's personal attack power."""
@@ -330,3 +340,52 @@ class Hero(Unit):
         self.stats.attack += 2
         self.stats.defense += 1
         self.leadership += 2
+
+    def join_army(self, army: 'Army') -> bool:
+        """
+        Join an army as its commander.
+
+        Args:
+            army: The army to join
+
+        Returns:
+            True if successful, False if army already has a hero
+        """
+        if army.hero is not None:
+            return False
+
+        self.army = army
+        army.hero = self
+        # Hero's position is now the army's position
+        self.position = None
+        return True
+
+    def leave_army(self) -> bool:
+        """
+        Leave the current army.
+
+        Returns:
+            True if successful, False if not in an army
+        """
+        if self.army is None:
+            return False
+
+        # Take army's position as hero's position
+        if hasattr(self.army, 'position'):
+            self.position = self.army.position
+
+        self.army.hero = None
+        self.army = None
+        return True
+
+    @property
+    def is_independent(self) -> bool:
+        """Check if hero is moving independently (not attached to army)."""
+        return self.army is None
+
+    @property
+    def effective_position(self) -> Optional[HexCoord]:
+        """Get hero's position (own position if independent, army's if attached)."""
+        if self.army is not None and hasattr(self.army, 'position'):
+            return self.army.position
+        return self.position
