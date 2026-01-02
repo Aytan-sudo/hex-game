@@ -73,16 +73,13 @@
 
 ## IA
 
-### IA ennemie basique
-- [ ] Déplacement vers objectifs
-- [ ] Attaque si avantage numérique
-- [ ] Retraite si désavantage
+### IA stratégique
 - [ ] Défense des villes
+- [ ] Gestion des héros indépendants
 
 ### IA tactique
-- [ ] Positionnement intelligent des unités
-- [ ] Focus sur unités faibles
-- [ ] Utilisation du terrain
+- [ ] Utilisation du terrain (bonus défensifs)
+- [ ] Coordination des attaques
 
 ---
 
@@ -106,4 +103,3 @@
 1. Combat en collines (carte tactique pour nouveau terrain)
 2. Avantages tactiques de base (couvert, hauteur)
 3. Mini-carte
-4. IA basique pour Player 2

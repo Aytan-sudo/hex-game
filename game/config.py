@@ -69,6 +69,14 @@ class ProgressionSettings:
 
 
 @dataclass
+class AISettings:
+    """AI behavior configuration."""
+    action_delay_ms: int = 400        # Delay between AI actions for visibility
+    turn_start_delay_ms: int = 300    # Delay at start of AI turn
+    enabled: bool = True              # Master switch for AI
+
+
+@dataclass
 class PlayerColors:
     """Player color configuration."""
     player1: Tuple[int, int, int] = (100, 100, 255)
@@ -96,6 +104,7 @@ UI = UISettings()
 ANIMATION = AnimationSettings()
 BATTLE = BattleSettings()
 PROGRESSION = ProgressionSettings()
+AI = AISettings()
 PLAYER_COLORS = PlayerColors()
 
 

@@ -21,7 +21,8 @@ from engine.input_handler import CameraController
 from engine.pathfinding import calculate_valid_moves, calculate_path_cost
 from game.terrain import TerrainType, get_terrain_config
 from game.map_generator import MapConfig, MapGenerator
-from game.config import UI, INPUT, BATTLE, PLAYER_COLORS
+from game.config import UI, INPUT, BATTLE, PLAYER_COLORS, AI
+from game.ai import TacticalAI, TacticalAction, AIPersonality
 
 
 # =============================================================================
@@ -140,11 +141,8 @@ def _create_tactical_map_config(
             'mountain_density': 0.15,
             'mountain_cluster_size': 2,
         },
-        TerrainType.ROAD: {
-            'forest_density': 0.20,
-            'hills_density': 0.05,
-            'mountain_density': 0.0,
-        },
+        # Note: ROAD is now an OverlayType, not a TerrainType.
+        # Battles on roads use the base terrain config (e.g., PLAINS).
     }
 
     # Get terrain-specific config or use default
@@ -174,8 +172,7 @@ def _generate_tactical_map(
     # Post-processing for specific terrain types
     if strategic_terrain == TerrainType.DESERT:
         tiles = _convert_plains_to_desert(tiles)
-    elif strategic_terrain == TerrainType.ROAD:
-        tiles = _add_tactical_road(tiles, width, height)
+    # Note: ROAD overlay handling removed - roads are now overlays on base terrain
 
     return tiles
 
@@ -221,7 +218,8 @@ class TacticalBattle:
         defender: Army,
         screen: pygame.Surface,
         strategic_terrain: TerrainType = TerrainType.PLAINS,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        ai_players: Optional[Dict[int, AIPersonality]] = None
     ):
         self.attacker = attacker
         self.defender = defender
@@ -261,6 +259,16 @@ class TacticalBattle:
         self.battle_over = False
         self.battle_report: Optional[BattleReport] = None
         self.combat_log: List[str] = []
+
+        # AI controllers
+        self.ai_players: Dict[int, TacticalAI] = {}
+        if ai_players:
+            for player_id, personality in ai_players.items():
+                self.ai_players[player_id] = TacticalAI(player_id, personality)
+
+        # AI turn state
+        self._ai_action_timer: int = 0
+        self._pending_ai_action: Optional[TacticalAction] = None
 
         # Camera
         self.camera = Camera(self.screen_width, self.screen_height)
@@ -512,6 +520,82 @@ class TacticalBattle:
 
         if self.turn_number > BATTLE.max_turns:
             self._end_battle(is_draw=True)
+
+    def is_ai_turn(self) -> bool:
+        """Check if it's an AI player's turn."""
+        return self.current_player_id in self.ai_players
+
+    def update_ai_turn(self) -> bool:
+        """
+        Update AI turn logic. Returns True if AI is still acting.
+
+        Call this every frame during AI turns. The AI will execute
+        actions with delays for visualization.
+        """
+        if not self.is_ai_turn() or self.battle_over:
+            return False
+
+        current_time = pygame.time.get_ticks()
+
+        # Wait for action delay
+        if self._ai_action_timer > current_time:
+            return True
+
+        ai = self.ai_players[self.current_player_id]
+
+        # Execute pending action if any
+        if self._pending_ai_action:
+            self._execute_ai_action(self._pending_ai_action)
+            self._pending_ai_action = None
+            self._ai_action_timer = current_time + AI.action_delay_ms
+            return True
+
+        # Get next action from AI
+        action = ai.play_turn(self)
+
+        if action:
+            self._pending_ai_action = action
+            self._ai_action_timer = current_time + AI.action_delay_ms // 2
+            return True
+        else:
+            # AI turn complete, end turn
+            self.end_turn()
+            self._ai_action_timer = current_time + AI.turn_start_delay_ms
+            return True
+
+    def _execute_ai_action(self, action: TacticalAction):
+        """Execute a tactical AI action."""
+        unit = action.unit
+
+        if action.action_type == "attack":
+            # Direct attack
+            self.select_unit(unit)
+            if action.attack_target and action.attack_target.position:
+                self.try_attack(action.attack_target.position)
+            unit.has_acted = True
+
+        elif action.action_type == "move":
+            # Just move
+            self.select_unit(unit)
+            if action.target_pos:
+                target_coord = HexCoord(*action.target_pos)
+                self.try_move(target_coord)
+
+        elif action.action_type == "move_and_attack":
+            # Move first
+            self.select_unit(unit)
+            if action.target_pos:
+                target_coord = HexCoord(*action.target_pos)
+                self.try_move(target_coord)
+
+            # Then attack
+            if action.attack_target and action.attack_target.position:
+                self.select_unit(unit)  # Re-select to update valid attacks
+                self.try_attack(action.attack_target.position)
+            unit.has_acted = True
+
+        # Clear selection after action
+        self.select_unit(None)
 
     def _check_battle_end(self):
         """Check if battle should end."""
@@ -857,7 +941,8 @@ def run_tactical_battle(
     attacker: Army,
     defender: Army,
     player_colors: Dict[int, Tuple[int, int, int]],
-    strategic_terrain: TerrainType = TerrainType.PLAINS
+    strategic_terrain: TerrainType = TerrainType.PLAINS,
+    ai_players: Optional[Dict[int, AIPersonality]] = None
 ) -> BattleReport:
     """
     Run a tactical battle between two armies.
@@ -868,10 +953,11 @@ def run_tactical_battle(
         defender: The defending army
         player_colors: Color mapping for player IDs
         strategic_terrain: The terrain type from the strategic map
+        ai_players: Optional dict mapping player_id to AIPersonality for AI-controlled players
 
     Returns the battle report when complete.
     """
-    battle = TacticalBattle(attacker, defender, screen, strategic_terrain)
+    battle = TacticalBattle(attacker, defender, screen, strategic_terrain, ai_players=ai_players)
     camera_controller = CameraController(
         battle.camera, INPUT.drag_threshold, INPUT.scroll_speed, INPUT.fast_scroll_multiplier
     )
@@ -886,6 +972,7 @@ def run_tactical_battle(
 
     while running:
         mouse_pos = pygame.mouse.get_pos()
+        is_ai_turn = battle.is_ai_turn()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -898,12 +985,12 @@ def run_tactical_battle(
                     running = False
                 elif event.key == pygame.K_ESCAPE:
                     battle._end_battle(attacker_won=False)
-                elif event.key == pygame.K_SPACE:
+                elif event.key == pygame.K_SPACE and not is_ai_turn:
                     battle.end_turn()
                 else:
                     camera_controller.handle_event(event, mouse_pos)
 
-            elif event.type == pygame.MOUSEBUTTONDOWN and not show_report:
+            elif event.type == pygame.MOUSEBUTTONDOWN and not show_report and not is_ai_turn:
                 if event.button == 1:
                     _handle_left_click(battle, camera_controller.hex_grid, mouse_pos)
                 else:
@@ -912,7 +999,7 @@ def run_tactical_battle(
             elif event.type == pygame.MOUSEBUTTONUP:
                 if not camera_controller.handle_event(event, mouse_pos):
                     # Right-click was not a drag - deselect
-                    if event.button == 3:
+                    if event.button == 3 and not is_ai_turn:
                         battle.select_unit(None)
 
             elif event.type == pygame.MOUSEMOTION:
@@ -920,6 +1007,10 @@ def run_tactical_battle(
 
             elif event.type == pygame.MOUSEWHEEL:
                 camera_controller.handle_event(event, mouse_pos)
+
+        # Update AI turn
+        if is_ai_turn and not battle.battle_over:
+            battle.update_ai_turn()
 
         camera_controller.handle_continuous_input()
 

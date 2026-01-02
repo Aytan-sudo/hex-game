@@ -20,7 +20,8 @@ from engine.input_handler import CameraController
 from engine.pathfinding import calculate_path_cost, find_path
 from game.tactical_map import run_tactical_battle, BattleReport
 from game.terrain import TerrainType
-from game.config import UI, INPUT, PLAYER_COLORS, ANIMATION
+from game.config import UI, INPUT, PLAYER_COLORS, ANIMATION, AI
+from game.ai import AIPlayer, AIPersonality
 
 # Type alias for units that can be selected on strategic map
 StrategicUnit = Army | Hero
@@ -69,6 +70,7 @@ def _get_hero_at(
 class StrategicGamePhase(Enum):
     """Current phase of the strategic game."""
     PLAYER_TURN = "player_turn"
+    AI_TURN = "ai_turn"
     TACTICAL_BATTLE = "tactical_battle"
     GAME_OVER = "game_over"
 
@@ -80,6 +82,7 @@ class Player:
     name: str
     color: Tuple[int, int, int]
     is_human: bool = True
+    ai_personality: Optional[AIPersonality] = None  # Only used if is_human=False
 
 
 @dataclass
@@ -125,7 +128,8 @@ class StrategicGameState:
         """Initialize strategic game state."""
         self.players = players or [
             Player(id=0, name="Player 1", color=PLAYER_COLORS.player1, is_human=True),
-            Player(id=1, name="Player 2", color=PLAYER_COLORS.player2, is_human=False),
+            Player(id=1, name="Player 2", color=PLAYER_COLORS.player2, is_human=False,
+                   ai_personality=AIPersonality.AGGRESSIVE),
         ]
 
         self.turn_number = 1
@@ -146,6 +150,17 @@ class StrategicGameState:
         # Current animation (if any)
         self.current_animation: Optional[MoveAnimation] = None
 
+        # AI controllers for non-human players
+        self.ai_controllers: Dict[int, AIPlayer] = {}
+        for player in self.players:
+            if not player.is_human and player.ai_personality:
+                self.ai_controllers[player.id] = AIPlayer(player.id, player.ai_personality)
+
+        # AI turn state
+        self._pending_ai_actions: List = []
+        self._ai_action_timer: int = 0
+        self._tiles_ref: Dict[Tuple[int, int], Tile] = {}
+
     @property
     def current_player(self) -> Player:
         """Get the current player."""
@@ -157,6 +172,14 @@ class StrategicGameState:
         if isinstance(self.selected_unit, Army):
             return self.selected_unit
         return None
+
+    def get_ai_players_for_tactical(self) -> Dict[int, AIPersonality]:
+        """Get AI personality dict for tactical battles."""
+        return {
+            player.id: player.ai_personality
+            for player in self.players
+            if not player.is_human and player.ai_personality
+        }
 
     def start_turn(self, armies: List[Army], heroes: List[Hero] = None):
         """Start a new turn for the current player."""
@@ -174,6 +197,87 @@ class StrategicGameState:
             for hero in heroes:
                 if hero.player_id == self.current_player.id and hero.is_independent:
                     hero.start_turn()
+
+        # Set phase based on player type
+        if self.current_player.is_human:
+            self.phase = StrategicGamePhase.PLAYER_TURN
+        else:
+            self.phase = StrategicGamePhase.AI_TURN
+            # Plan AI actions at start of turn
+            self._pending_ai_actions = []
+            self._ai_action_timer = AI.turn_start_delay_ms
+            if self.current_player.id in self.ai_controllers:
+                ai = self.ai_controllers[self.current_player.id]
+                self._pending_ai_actions = ai.plan_turn(self._tiles_ref, armies, self)
+
+    def set_tiles_reference(self, tiles: Dict[Tuple[int, int], Tile]):
+        """Set reference to tiles for AI planning."""
+        self._tiles_ref = tiles
+
+    def update_ai_turn(self, tiles: Dict[Tuple[int, int], Tile], dt_ms: int) -> Optional[Tuple[str, any]]:
+        """
+        Update AI turn logic.
+
+        Args:
+            tiles: Game tiles
+            dt_ms: Delta time in milliseconds
+
+        Returns:
+            Tuple of (action, data) or None:
+            - ("battle", (attacker, defender, original_pos)): Battle triggered
+            - ("end_turn", None): AI finished its turn
+            - None: Still processing
+        """
+        if self.phase != StrategicGamePhase.AI_TURN:
+            return None
+
+        # Wait during animation
+        if self.current_animation is not None:
+            return None
+
+        # Delay timer between actions
+        self._ai_action_timer -= dt_ms
+        if self._ai_action_timer > 0:
+            return None
+
+        # No more actions - end turn
+        if not self._pending_ai_actions:
+            return ("end_turn", None)
+
+        # Execute next action
+        action = self._pending_ai_actions.pop(0)
+        self._ai_action_timer = AI.action_delay_ms
+
+        # Get the army and verify it can still act
+        army = action.army
+        if army.movement_remaining <= 0:
+            return None  # Skip, army already moved
+
+        target_pos = action.target_pos
+        target_tile = tiles.get(target_pos)
+        if target_tile is None:
+            return None
+
+        # Store original position for battle retreat
+        original_pos = army.position.to_tuple()
+
+        # Select the army and calculate valid moves
+        self.select_unit(army, tiles)
+
+        # Check if target is still valid
+        if target_pos not in self.valid_moves:
+            self.select_unit(None, tiles)
+            return None
+
+        # Execute the move
+        target_coord = HexCoord(*target_pos)
+        battle_result = self.try_move_army(target_coord, tiles)
+
+        if battle_result:
+            attacker, defender = battle_result
+            return ("battle", (attacker, defender, original_pos))
+
+        return None
 
     def end_turn(self, armies: List[Army], heroes: List[Hero] = None):
         """End the current player's turn."""
@@ -902,6 +1006,7 @@ def run_strategic_game(
 
     # Initialize game state
     game_state = StrategicGameState()
+    game_state.set_tiles_reference(tiles)
     game_state.start_turn(armies, heroes)
 
     clock = pygame.time.Clock()
@@ -937,8 +1042,8 @@ def run_strategic_game(
                         selected_hex = None
                 continue
 
-            # Block other inputs during animation
-            if is_animating:
+            # Block other inputs during animation or AI turn
+            if is_animating or game_state.phase == StrategicGamePhase.AI_TURN:
                 continue
 
             if event.type == pygame.KEYDOWN:
@@ -984,7 +1089,8 @@ def run_strategic_game(
             report = run_tactical_battle(
                 screen, attacker, defender,
                 PLAYER_COLORS.as_dict(),
-                strategic_terrain=battle_terrain
+                strategic_terrain=battle_terrain,
+                ai_players=game_state.get_ai_players_for_tactical()
             )
 
             game_state.resolve_battle_aftermath(
@@ -1004,6 +1110,49 @@ def run_strategic_game(
             if winner is not None:
                 _show_victory_screen(screen, game_state.players[winner], font)
                 return True
+
+        # Handle AI turn
+        if game_state.phase == StrategicGamePhase.AI_TURN and not is_animating:
+            dt_ms = int(dt * 1000)
+            ai_result = game_state.update_ai_turn(tiles, dt_ms)
+
+            if ai_result:
+                action, data = ai_result
+                if action == "end_turn":
+                    game_state.end_turn(armies, heroes)
+                elif action == "battle":
+                    attacker, defender, attacker_original_pos = data
+
+                    # If animation is running, defer battle
+                    if game_state.current_animation:
+                        pending_battle_data = (attacker, defender, attacker_original_pos)
+                    else:
+                        # Run battle immediately
+                        defender_tile = tiles.get(defender.position.to_tuple())
+                        battle_terrain = _get_terrain_type(defender_tile) if defender_tile else TerrainType.PLAINS
+
+                        report = run_tactical_battle(
+                            screen, attacker, defender,
+                            PLAYER_COLORS.as_dict(),
+                            strategic_terrain=battle_terrain,
+                            ai_players=game_state.get_ai_players_for_tactical()
+                        )
+
+                        game_state.resolve_battle_aftermath(
+                            attacker, defender, report, tiles, armies, attacker_original_pos
+                        )
+
+                        if report.attacker_won:
+                            battle_message = f"{report.attacker_name} wins! Losses: {report.attacker_losses} vs {report.defender_losses}"
+                        else:
+                            battle_message = f"{report.defender_name} wins! Losses: {report.defender_losses} vs {report.attacker_losses}"
+                        battle_message_timer = 5.0
+
+                        # Check victory
+                        winner = game_state.check_victory(armies)
+                        if winner is not None:
+                            _show_victory_screen(screen, game_state.players[winner], font)
+                            return True
 
         # Continuous input
         camera_controller.handle_continuous_input()
@@ -1096,7 +1245,8 @@ def _handle_left_click(
                 report = run_tactical_battle(
                     screen, attacker, defender,
                     PLAYER_COLORS.as_dict(),
-                    strategic_terrain=battle_terrain
+                    strategic_terrain=battle_terrain,
+                    ai_players=game_state.get_ai_players_for_tactical()
                 )
 
                 game_state.resolve_battle_aftermath(
