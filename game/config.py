@@ -60,6 +60,7 @@ class BattleSettings:
 class ProgressionSettings:
     """Character progression configuration."""
     xp_per_level_multiplier: int = 100  # XP needed = level * this value
+    xp_per_kill: int = 25  # XP a surviving hero gains per enemy unit destroyed in battle
 
     # Stat gains per level
     hp_per_level: int = 5

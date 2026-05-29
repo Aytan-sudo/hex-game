@@ -2,6 +2,10 @@
 
 Guide pour modifier le projet (~7000 lignes de code).
 
+> 📋 Pour l'état des lieux du code et le backlog priorisé, voir [`AUDIT.md`](AUDIT.md)
+> (instantané daté, non maintenu). **Ce `README_DEV.md` est le guide vivant** : il doit
+> rester synchronisé avec le code à chaque changement de structure (cf. `CLAUDE.md`).
+
 ## Architecture
 
 ```
@@ -13,8 +17,7 @@ hex-game/
 │   ├── camera.py          # Zoom multi-niveaux
 │   ├── combat.py          # CombatSystem (dégâts, contre-attaque)
 │   ├── pathfinding.py     # BFS (valid_moves), Dijkstra (find_path)
-│   ├── input_handler.py   # CameraController (drag, zoom)
-│   └── renderer.py        # Rendu Pygame de base
+│   └── input_handler.py   # CameraController (drag, zoom)
 │
 ├── game/               # Implémentation du jeu
 │   ├── config.py          # Constantes (INPUT, UI, ANIMATION, BATTLE, AI)
@@ -125,6 +128,10 @@ PLAYER_COLORS = PlayerColors(player1=(100,100,255), player2=(255,100,100))
 ### Modifier le combat
 
 `engine/combat.py` : `CombatSystem.resolve_combat()`, `_calculate_attack_damage()`
+
+- Contre-attaque : conditionnée par la distance (`distance <= defender.stats.range`) — un défenseur corps-à-corps ne riposte pas à un tir hors de portée.
+- Héros en bataille : déployés comme `TacticalUnit` (`source_hero`) dans `tactical_map._deploy_army_units()`.
+- XP post-bataille : `tactical_map.TacticalBattle._resolve_hero_outcomes()` (XP = pertes ennemies × `PROGRESSION.xp_per_kill`, détache les héros morts).
 
 ### Modifier le pathfinding
 

@@ -14,14 +14,14 @@ import pygame
 
 from engine.hex_grid import HexCoord, HexGrid
 from engine.tile import Tile
-from engine.unit import Army, ArmyUnit, UnitStats, UnitType
+from engine.unit import Army, ArmyUnit, Hero, UnitStats, UnitType
 from engine.combat import CombatSystem, CombatResult
 from engine.camera import Camera
 from engine.input_handler import CameraController
 from engine.pathfinding import calculate_valid_moves, calculate_path_cost
 from game.terrain import TerrainType, get_terrain_config
 from game.map_generator import MapConfig, MapGenerator
-from game.config import UI, INPUT, BATTLE, PLAYER_COLORS, AI
+from game.config import UI, INPUT, BATTLE, PLAYER_COLORS, AI, PROGRESSION
 from game.ai import TacticalAI, TacticalAction, AIPersonality
 
 
@@ -40,6 +40,7 @@ class TacticalUnit:
     movement_remaining: int = 0
     has_acted: bool = False
     source_army_unit: Optional[ArmyUnit] = None
+    source_hero: Optional[Hero] = None  # Set when this tactical unit is a deployed hero
 
     @property
     def is_alive(self) -> bool:
@@ -241,6 +242,10 @@ class TacticalBattle:
         # Create tactical units from armies
         self.attacker_units: List[TacticalUnit] = []
         self.defender_units: List[TacticalUnit] = []
+        # Stable references to deployed hero units (kept even after death,
+        # when the unit is dropped from the lists above).
+        self.attacker_hero_unit: Optional[TacticalUnit] = None
+        self.defender_hero_unit: Optional[TacticalUnit] = None
         self._deploy_units()
 
         # Combat system
@@ -302,6 +307,13 @@ class TacticalBattle:
         self._deploy_army_units(self.attacker, left_tiles, self.attacker_units)
         self._deploy_army_units(self.defender, right_tiles, self.defender_units)
 
+        self.attacker_hero_unit = next(
+            (u for u in self.attacker_units if u.source_hero is not None), None
+        )
+        self.defender_hero_unit = next(
+            (u for u in self.defender_units if u.source_hero is not None), None
+        )
+
     def _deploy_army_units(
         self,
         army: Army,
@@ -334,6 +346,29 @@ class TacticalBattle:
                 self.tiles[positions[deploy_idx]].unit = tactical_unit
                 target_list.append(tactical_unit)
                 deploy_idx += 1
+
+        # Deploy the commanding hero as its own combatant, if any.
+        if army.hero is not None and deploy_idx < len(positions):
+            hero = army.hero
+            hero_unit = TacticalUnit(
+                name=hero.name,
+                unit_type=UnitType.HERO,
+                stats=UnitStats(
+                    max_hp=hero.stats.max_hp,
+                    current_hp=hero.stats.current_hp,
+                    attack=hero.stats.attack,
+                    defense=hero.stats.defense,
+                    movement=hero.stats.movement,
+                    range=hero.stats.range,
+                ),
+                player_id=army.player_id,
+                position=HexCoord(*positions[deploy_idx]),
+                movement_remaining=hero.stats.movement,
+                source_hero=hero,
+            )
+            self.tiles[positions[deploy_idx]].unit = hero_unit
+            target_list.append(hero_unit)
+            deploy_idx += 1
 
     def get_units_for_player(self, player_id: int) -> List[TacticalUnit]:
         """Get all living units for a player."""
@@ -446,11 +481,13 @@ class TacticalBattle:
         attacker = self.selected_unit
         defender = target_tile.unit
         attacker_tile = self.tiles.get(attacker.position.to_tuple())
+        distance = attacker.position.distance_to(defender.position)
 
         # Resolve combat
         result = self.combat_system.resolve_combat(
             attacker, defender,
-            attacker_tile, target_tile
+            attacker_tile, target_tile,
+            distance=distance
         )
 
         # Log combat
@@ -652,6 +689,46 @@ class TacticalBattle:
         """Update the original armies with battle results."""
         self._update_army(self.attacker, self.attacker_units)
         self._update_army(self.defender, self.defender_units)
+        self._resolve_hero_outcomes()
+
+    def _resolve_hero_outcomes(self):
+        """
+        Propagate each commanding hero's fate back to the strategic layer.
+
+        A hero that fell in battle is detached from its army and removed from
+        play; a survivor gains experience proportional to the enemy units it
+        helped destroy.
+        """
+        report = self.battle_report
+        # Units each side lost are the units the *other* side destroyed.
+        attacker_kills = report.defender_losses if report else 0
+        defender_kills = report.attacker_losses if report else 0
+
+        self._resolve_hero(self.attacker, self.attacker_hero_unit, attacker_kills)
+        self._resolve_hero(self.defender, self.defender_hero_unit, defender_kills)
+
+    def _resolve_hero(
+        self,
+        army: Army,
+        hero_unit: Optional[TacticalUnit],
+        enemy_kills: int
+    ):
+        """Apply a single hero's battle outcome to the original army/hero."""
+        hero = army.hero
+        if hero is None or hero_unit is None:
+            return
+
+        if not hero_unit.is_alive:
+            # Hero killed: drop from the army and pull it off the map.
+            hero.stats.current_hp = 0
+            army.detach_hero()
+            hero.position = None
+            return
+
+        # Survivor: award XP. Stats are not persisted between battles (units
+        # redeploy at full strength), so we only level the hero up here.
+        if enemy_kills > 0:
+            hero.gain_experience(enemy_kills * PROGRESSION.xp_per_kill)
 
     def _update_army(self, army: Army, tactical_units: List[TacticalUnit]):
         """Update an army's unit counts based on survivors."""

@@ -87,19 +87,23 @@ class CombatSystem:
         attacker: Unit,
         defender: Unit,
         attacker_tile: Optional[Tile] = None,
-        defender_tile: Optional[Tile] = None
+        defender_tile: Optional[Tile] = None,
+        distance: int = 1
     ) -> CombatResult:
         """
         Resolve combat between two units.
 
         The attacker strikes first, then the defender counter-attacks
-        if still alive and in range.
+        if still alive and the attacker is within the defender's range.
 
         Args:
             attacker: The attacking unit
             defender: The defending unit
             attacker_tile: Tile the attacker is on (for terrain bonuses)
             defender_tile: Tile the defender is on (for terrain bonuses)
+            distance: Hex distance between attacker and defender. The defender
+                only counter-attacks if this is within its own range (e.g. a
+                melee unit cannot riposte against an archer firing from afar).
 
         Returns:
             CombatResult with damage dealt and survival status
@@ -120,9 +124,10 @@ class CombatSystem:
         # Apply damage to defender
         defender_damage = defender.stats.take_damage(attacker_power)
 
-        # Counter-attack if defender survives and is in melee range
+        # Counter-attack if defender survives and the attacker is within
+        # the defender's range (a melee unit cannot riposte a ranged strike).
         attacker_damage = 0
-        if defender.is_alive and defender.stats.range >= 1:
+        if defender.is_alive and distance <= defender.stats.range:
             # Defender's counter-attack is weaker
             counter_power = self._calculate_attack_damage(
                 defender.get_attack_power() // 2,
@@ -161,7 +166,8 @@ class CombatSystem:
         self,
         attacker: Unit,
         defender: Unit,
-        defender_tile: Optional[Tile] = None
+        defender_tile: Optional[Tile] = None,
+        distance: int = 1
     ) -> Tuple[int, int]:
         """
         Calculate expected damage without randomness (for UI preview).
@@ -178,9 +184,9 @@ class CombatSystem:
         defend_power = defender.get_defense_power() + defender_terrain_bonus
         expected_damage = max(1, attack_power - defend_power // 2)
 
-        # Expected counter-damage
+        # Expected counter-damage (only if attacker is within the defender's range)
         counter_damage = 0
-        if defender.stats.range >= 1:
+        if distance <= defender.stats.range:
             counter_power = defender.get_attack_power() // 2
             attacker_defense = attacker.get_defense_power()
             counter_damage = max(1, counter_power - attacker_defense // 2)
