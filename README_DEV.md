@@ -166,20 +166,29 @@ PLAYER_COLORS = PlayerColors(player1=(100,100,255), player2=(255,100,100))
 
 ---
 
+## Environnement
+
+Le projet utilise **[uv](https://docs.astral.sh/uv/)** (dépendances dans `pyproject.toml`,
+verrou dans `uv.lock`, Python épinglé par `.python-version`).
+
+```bash
+uv sync          # installe l'environnement (crée .venv)
+uv run python game/main.py   # lance le jeu
+uv add <paquet>  # ajoute une dépendance
+```
+
 ## Tests rapides
 
 ```bash
-source .venv/bin/activate
-
 # Imports
-python -c "from game.terrain import TerrainType; print('OK')"
-python -c "from game.ai import AIPlayer, TacticalAI; print('OK')"
+uv run python -c "from game.terrain import TerrainType; print('OK')"
+uv run python -c "from game.ai import AIPlayer, TacticalAI; print('OK')"
 
 # Génération carte
-python -c "from game.map_generator import generate_map; print(len(generate_map(20,20)), 'tiles')"
+uv run python -c "from game.map_generator import generate_map; print(len(generate_map(20,20)), 'tiles')"
 
 # Jeu complet
-python game/main.py
+uv run python game/main.py
 ```
 
 ---

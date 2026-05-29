@@ -27,20 +27,25 @@ an audit item is resolved.
 - Code style and naming: see the "Conventions" section of `README_DEV.md`.
 - Comments and docstrings in this project are written in **French**; match the surrounding style.
 
+## Environment
+
+The project uses **[uv](https://docs.astral.sh/uv/)** (deps in `pyproject.toml`, locked in
+`uv.lock`, Python pinned via `.python-version`). Use `uv run` instead of activating a venv.
+
 ## Quick checks
 
 ```bash
-source .venv/bin/activate
+uv sync   # ensure the environment is installed
 
 # Imports
-python -c "from game.terrain import TerrainType; print('OK')"
-python -c "from game.ai import AIPlayer, TacticalAI; print('OK')"
-python -c "from game.tactical_map import TacticalBattle; print('OK')"
+uv run python -c "from game.terrain import TerrainType; print('OK')"
+uv run python -c "from game.ai import AIPlayer, TacticalAI; print('OK')"
+uv run python -c "from game.tactical_map import TacticalBattle; print('OK')"
 
 # Run the game
-python game/main.py
+uv run python game/main.py
 ```
 
 There is no automated test suite yet (see `AUDIT.md` §4 reco 12). Until one exists, verify
 changes with the import checks above and, for gameplay logic, a focused headless script
-(`SDL_VIDEODRIVER=dummy`).
+(`SDL_VIDEODRIVER=dummy uv run python ...`).
