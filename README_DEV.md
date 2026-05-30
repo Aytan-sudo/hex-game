@@ -152,6 +152,12 @@ jeu avec `<` / `>` (touches virgule/point), y compris pendant le tour ennemi.
 
 `engine/pathfinding.py` : `calculate_valid_moves()` (BFS), `find_path()` (Dijkstra)
 
+`calculate_valid_moves()` est la **source unique** du BFS de mouvement : le
+tactique, `StrategicGameState._calculate_valid_moves` et
+`AIPlayer._calculate_valid_moves` y délèguent tous, en fournissant le prédicat
+d'arrêt `can_move_to(tile, pos)` (et optionnellement `can_pass_through(tile)`).
+Ne pas réintroduire de BFS faits-main.
+
 ### Déroulement / fin de tour
 
 - **Fin de tour automatique** : la boucle stratégique appelle chaque frame

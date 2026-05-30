@@ -17,7 +17,7 @@ from engine.tile import Tile
 from engine.unit import Army, Hero
 from engine.camera import Camera
 from engine.input_handler import CameraController
-from engine.pathfinding import calculate_path_cost, find_path
+from engine.pathfinding import calculate_path_cost, find_path, calculate_valid_moves
 from game.tactical_map import run_tactical_battle, BattleReport
 from game.terrain import TerrainType
 from game.config import UI, INPUT, PLAYER_COLORS, ANIMATION, AI, SPEED
@@ -358,58 +358,30 @@ class StrategicGameState:
         tiles: Dict[Tuple[int, int], Tile],
         heroes: List[Hero] = None
     ) -> Set[Tuple[int, int]]:
-        """Calculate all valid move destinations using BFS."""
-        valid = set()
-        start = unit.position.to_tuple()
-        is_hero = isinstance(unit, Hero)
+        """
+        Calculate all valid move destinations.
 
-        queue = [(start, unit.movement_remaining)]
-        visited = {start: unit.movement_remaining}
+        Délègue au BFS canonique d'``engine.pathfinding``. La traversée n'est
+        autorisée que sur les cases vides (``can_pass_through`` par défaut) ;
+        seul le prédicat d'arrêt change selon le type d'unité :
 
-        while queue:
-            current_pos, remaining = queue.pop(0)
-            current_coord = HexCoord(*current_pos)
+        - héros : case vide, ou armée alliée (pour la rejoindre) ;
+        - armée : case vide, ou case ennemie (déclenche une bataille).
 
-            for neighbor in current_coord.neighbors():
-                neighbor_tuple = neighbor.to_tuple()
+        ``heroes`` est conservé pour compatibilité d'appel mais inutilisé ici.
+        """
+        if isinstance(unit, Hero):
+            def can_stop(tile, pos):
+                return tile.unit is None or (
+                    tile.unit.player_id == unit.player_id and isinstance(tile.unit, Army)
+                )
+        else:
+            def can_stop(tile, pos):
+                return tile.unit is None or tile.unit.player_id != unit.player_id
 
-                if neighbor_tuple not in tiles:
-                    continue
-
-                tile = tiles[neighbor_tuple]
-
-                if not tile.is_passable:
-                    continue
-
-                move_cost = tile.get_movement_cost()
-                new_remaining = remaining - move_cost
-
-                if new_remaining < 0:
-                    continue
-
-                if neighbor_tuple in visited and visited[neighbor_tuple] >= new_remaining:
-                    continue
-
-                visited[neighbor_tuple] = new_remaining
-
-                if is_hero:
-                    # Heroes can move to empty tiles or friendly armies (to join)
-                    if tile.unit is None:
-                        valid.add(neighbor_tuple)
-                    elif tile.unit.player_id == unit.player_id and isinstance(tile.unit, Army):
-                        valid.add(neighbor_tuple)
-                else:
-                    # Armies can move to empty tiles or enemy tiles (battle)
-                    if tile.unit is None:
-                        valid.add(neighbor_tuple)
-                    elif tile.unit.player_id != unit.player_id:
-                        valid.add(neighbor_tuple)
-
-                # Continue exploring from empty tiles
-                if tile.unit is None:
-                    queue.append((neighbor_tuple, new_remaining))
-
-        return valid
+        return calculate_valid_moves(
+            unit.position.to_tuple(), unit.movement_remaining, tiles, can_stop
+        )
 
     def try_move_army(
         self,

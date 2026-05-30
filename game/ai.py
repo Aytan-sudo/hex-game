@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import random
 
 from engine.hex_grid import HexCoord
-from engine.pathfinding import find_path, calculate_path_cost
+from engine.pathfinding import find_path, calculate_path_cost, calculate_valid_moves
 
 if TYPE_CHECKING:
     from engine.tile import Tile
@@ -184,50 +184,19 @@ class AIPlayer:
         army: Army,
         tiles: Dict[Tuple[int, int], Tile]
     ) -> List[Tuple[int, int]]:
-        """Calculate valid move destinations using BFS."""
-        valid = []
-        start = army.position.to_tuple()
+        """
+        Calculate valid move destinations.
 
-        queue = [(start, army.movement_remaining)]
-        visited = {start: army.movement_remaining}
+        Délègue au BFS canonique d'``engine.pathfinding``. Une armée peut
+        s'arrêter sur une case vide ou ennemie (déclenche une bataille) mais ne
+        traverse que les cases vides (``can_pass_through`` par défaut).
+        """
+        def can_stop(tile, pos):
+            return tile.unit is None or tile.unit.player_id != army.player_id
 
-        while queue:
-            current_pos, remaining = queue.pop(0)
-            current_coord = HexCoord(*current_pos)
-
-            for neighbor in current_coord.neighbors():
-                neighbor_tuple = neighbor.to_tuple()
-
-                if neighbor_tuple not in tiles:
-                    continue
-
-                tile = tiles[neighbor_tuple]
-
-                if not tile.is_passable:
-                    continue
-
-                move_cost = tile.get_movement_cost()
-                new_remaining = remaining - move_cost
-
-                if new_remaining < 0:
-                    continue
-
-                if neighbor_tuple in visited and visited[neighbor_tuple] >= new_remaining:
-                    continue
-
-                visited[neighbor_tuple] = new_remaining
-
-                # Can move to empty tiles or enemy tiles (battle)
-                if tile.unit is None:
-                    valid.append(neighbor_tuple)
-                elif tile.unit.player_id != army.player_id:
-                    valid.append(neighbor_tuple)
-
-                # Continue exploring from empty tiles
-                if tile.unit is None:
-                    queue.append((neighbor_tuple, new_remaining))
-
-        return valid
+        return list(calculate_valid_moves(
+            army.position.to_tuple(), army.movement_remaining, tiles, can_stop
+        ))
 
     def _score_move(
         self,

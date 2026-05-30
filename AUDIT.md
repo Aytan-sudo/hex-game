@@ -14,7 +14,7 @@
 | §2.5 | Contre-attaque ignorant la distance | ✅ Corrigé (`combat.py`) |
 | §2.7 | Héros non déployé en bataille tactique | ✅ Corrigé (`tactical_map.py`) |
 | Reco 5 | Gain d'XP héros post-bataille | ✅ Branché (`tactical_map._resolve_hero_outcomes`) |
-| §2.2 | BFS de mouvement dupliqué (×4 → reste ×3 après suppression du mort) | ⬜ À faire |
+| §2.2 | BFS de mouvement dupliqué (×4 → reste ×3 après suppression du mort) | ✅ Centralisé sur `engine.pathfinding` |
 | §2.6 | `attacker_terrain_bonus` ambigu | ⬜ À clarifier |
 | §2.8 | XP/level-up héros décoratif | ✅ Désormais effectif (cf. Reco 5) |
 | Reco 12 | Absence de suite de tests | ✅ Amorcée (`tests/`, `uv run pytest`) |
@@ -43,7 +43,7 @@
 - `game/cities.py` (`City`, `Building`, `BuildingType`) : exporté, aucun import. Les villes ne sont qu'un `OverlayType.CITY`.
 - **Conséquence (à l'époque) :** ~1 100 lignes (15 %) de code zombie. **Supprimé lors de la session de nettoyage.**
 
-### 2.2 Duplication massive du BFS de mouvement — ⬜ À FAIRE
+### 2.2 Duplication massive du BFS de mouvement — ✅ RÉSOLU
 
 Implémentations quasi-identiques du calcul des mouvements valides :
 - `engine/pathfinding.py` `calculate_valid_moves` (version canonique)
@@ -51,7 +51,12 @@ Implémentations quasi-identiques du calcul des mouvements valides :
 - `game/strategic_map.py` `StrategicGameState._calculate_valid_moves`
 - `game/ai.py` `AIPlayer._calculate_valid_moves`
 
-Le tactique (`game/tactical_map.py`) est le seul qui réutilise réellement `engine.pathfinding.calculate_valid_moves`. À uniformiser.
+**Corrigé** : `strategic_map` et `ai` délèguent désormais à
+`engine.pathfinding.calculate_valid_moves`, ne fournissant que le prédicat
+d'arrêt (`can_move_to`) propre à chaque cas (armée : case vide/ennemie ; héros :
+case vide/armée alliée). La traversée reste limitée aux cases vides
+(`can_pass_through` par défaut). Équivalence verrouillée par
+`tests/test_valid_moves_semantics.py`.
 
 ### 2.3 Couplage logique ↔ Pygame — ⬜
 
