@@ -78,6 +78,57 @@ def test_tactical_has_actions_true_at_start(screen):
     assert battle.current_player_has_actions() is True
 
 
+def test_tactical_ai_is_dt_driven(screen):
+    """
+    C1 : la cadence IA dépend de ``dt_ms`` injecté, pas de l'horloge murale.
+    Tant que le délai n'est pas écoulé (dt=0), l'action reste en attente.
+    """
+    battle = _make_battle(screen)
+    # 1er appel : le timer démarre à 0 -> l'IA choisit une action en attente.
+    battle.update_ai_turn(dt_ms=0)
+    assert battle._pending_ai_action is not None
+    # dt=0 : délai non écoulé, l'action ne s'exécute pas encore.
+    battle.update_ai_turn(dt_ms=0)
+    assert battle._pending_ai_action is not None
+    # dt large : délai écoulé, l'action est exécutée.
+    battle.update_ai_turn(dt_ms=10_000)
+    assert battle._pending_ai_action is None
+
+
+def test_tactical_ai_turn_completes_via_dt(screen):
+    """En pompant ``update_ai_turn`` avec du dt, le tour IA se termine (sans horloge)."""
+    battle = _make_battle(screen)
+    start = battle.current_player_id
+    for _ in range(300):
+        battle.update_ai_turn(dt_ms=10_000)
+        if battle.battle_over or battle.current_player_id != start:
+            break
+    assert battle.battle_over or battle.current_player_id != start
+
+
+def test_strategic_animation_is_dt_driven(make_grid):
+    """L'animation stratégique avance selon ``dt_ms`` (accumulateur), pas l'horloge."""
+    from game.strategic_map import StrategicGameState, MoveAnimation
+    from game.config import ANIMATION
+    from engine.unit import Army
+    from engine.hex_grid import HexCoord
+
+    tiles = make_grid(radius=3)
+    army = Army("a", player_id=0)
+    army.position = HexCoord(0, 0)
+
+    gs = StrategicGameState()
+    gs.current_animation = MoveAnimation(unit=army, path=[(0, 0), (1, 0), (2, 0)])
+
+    delay = ANIMATION.move_step_delay_ms
+    # dt insuffisant -> aucun pas
+    gs.update_animation(tiles, dt_ms=delay - 1)
+    assert army.position.to_tuple() == (0, 0)
+    # le cumul dépasse le délai -> un pas effectué
+    gs.update_animation(tiles, dt_ms=delay)
+    assert army.position.to_tuple() == (1, 0)
+
+
 def test_strategic_auto_end_detection():
     """current_player_has_moves : vrai au départ, faux une fois le mouvement épuisé."""
     from game.main import generate_test_map, create_test_units

@@ -585,20 +585,21 @@ class TacticalBattle:
                 return True
         return False
 
-    def update_ai_turn(self) -> bool:
+    def update_ai_turn(self, dt_ms: int = 0) -> bool:
         """
         Update AI turn logic. Returns True if AI is still acting.
 
-        Call this every frame during AI turns. The AI will execute
-        actions with delays for visualization.
+        Call this every frame during AI turns. The AI will execute actions
+        avec des délais pour la lisibilité. La cadence est pilotée par ``dt_ms``
+        (temps écoulé depuis la frame précédente), pas par l'horloge murale
+        (AUDIT §2.3 / reco 11) : ``_ai_action_timer`` est un compte à rebours.
         """
         if not self.is_ai_turn() or self.battle_over:
             return False
 
-        current_time = pygame.time.get_ticks()
-
-        # Wait for action delay
-        if self._ai_action_timer > current_time:
+        # Wait for action delay (compte à rebours alimenté par dt_ms)
+        self._ai_action_timer -= dt_ms
+        if self._ai_action_timer > 0:
             return True
 
         ai = self.ai_players[self.current_player_id]
@@ -607,7 +608,7 @@ class TacticalBattle:
         if self._pending_ai_action:
             self._execute_ai_action(self._pending_ai_action)
             self._pending_ai_action = None
-            self._ai_action_timer = current_time + AI.action_delay_ms
+            self._ai_action_timer = AI.action_delay_ms
             return True
 
         # Get next action from AI
@@ -619,12 +620,12 @@ class TacticalBattle:
             # ce que fait l'ennemi pendant le tour adverse.
             if action.unit and action.unit.position:
                 self.ai_focus = action.unit.position
-            self._ai_action_timer = current_time + AI.action_delay_ms // 2
+            self._ai_action_timer = AI.action_delay_ms // 2
             return True
         else:
             # AI turn complete, end turn
             self.end_turn()
-            self._ai_action_timer = current_time + AI.turn_start_delay_ms
+            self._ai_action_timer = AI.turn_start_delay_ms
             return True
 
     def _execute_ai_action(self, action: TacticalAction):
@@ -1077,6 +1078,7 @@ def run_tactical_battle(
 
     running = True
     show_report = False
+    dt_ms = 0  # temps écoulé sur la frame précédente (ms)
 
     while running:
         mouse_pos = pygame.mouse.get_pos()
@@ -1118,7 +1120,7 @@ def run_tactical_battle(
 
         # Update AI turn
         if is_ai_turn and not battle.battle_over:
-            battle.update_ai_turn()
+            battle.update_ai_turn(dt_ms)
             # Suit l'unité IA en cours d'action (glissement fluide de la caméra).
             if battle.ai_focus is not None:
                 battle.camera.center_on(
@@ -1137,7 +1139,7 @@ def run_tactical_battle(
 
         renderer.render_frame(battle, camera_controller.hex_grid, player_colors, show_report)
         pygame.display.flip()
-        clock.tick(60)
+        dt_ms = clock.tick(60)
 
     battle.update_armies_after_battle()
     return battle.battle_report

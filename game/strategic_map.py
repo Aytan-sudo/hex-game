@@ -87,11 +87,16 @@ class Player:
 
 @dataclass
 class MoveAnimation:
-    """Tracks an ongoing movement animation."""
+    """Tracks an ongoing movement animation.
+
+    Le rythme est piloté par un accumulateur ``elapsed_ms`` alimenté par le
+    ``dt_ms`` de la boucle (voir ``update_animation``) : la logique ne lit pas
+    l'horloge murale directement (AUDIT §2.3 / reco 11).
+    """
     unit: StrategicUnit
     path: List[Tuple[int, int]]  # Full path from start to end
     current_step: int = 0  # Current position in path
-    last_step_time: int = 0  # pygame.time.get_ticks() of last step
+    elapsed_ms: float = 0.0  # Temps accumulé depuis le dernier pas
     on_complete: Optional[str] = None  # Action to perform after: "join_army", etc.
 
     @property
@@ -109,7 +114,7 @@ class MoveAnimation:
     def advance(self) -> Tuple[int, int]:
         """Advance to next step and return new position."""
         self.current_step += 1
-        self.last_step_time = pygame.time.get_ticks()
+        self.elapsed_ms = 0.0
         return self.current_pos
 
 
@@ -429,7 +434,6 @@ class StrategicGameState:
                         self.current_animation = MoveAnimation(
                             unit=self.selected_army,
                             path=path_to_enemy,
-                            last_step_time=pygame.time.get_ticks()
                         )
             return (self.selected_army, target_tile.unit)
 
@@ -440,7 +444,6 @@ class StrategicGameState:
                 self.current_animation = MoveAnimation(
                     unit=self.selected_army,
                     path=path,
-                    last_step_time=pygame.time.get_ticks()
                 )
                 # Clear source tile, unit position will be updated during animation
                 source_tile.unit = None
@@ -502,7 +505,6 @@ class StrategicGameState:
                         self.current_animation = MoveAnimation(
                             unit=hero,
                             path=path,
-                            last_step_time=pygame.time.get_ticks(),
                             on_complete="join_army"
                         )
                         self.valid_moves.clear()
@@ -521,7 +523,6 @@ class StrategicGameState:
                 self.current_animation = MoveAnimation(
                     unit=hero,
                     path=path,
-                    last_step_time=pygame.time.get_ticks()
                 )
                 self.valid_moves.clear()
                 return "animating"
@@ -537,9 +538,18 @@ class StrategicGameState:
 
         return "moved"
 
-    def update_animation(self, tiles: Dict[Tuple[int, int], Tile]) -> Optional[str]:
+    def update_animation(
+        self,
+        tiles: Dict[Tuple[int, int], Tile],
+        dt_ms: int = 0
+    ) -> Optional[str]:
         """
         Update the current animation.
+
+        Args:
+            tiles: Map tiles.
+            dt_ms: Temps écoulé depuis la frame précédente (ms). La cadence des
+                pas est pilotée par ce delta, pas par l'horloge murale.
 
         Returns:
             - "continue" if animation is still running
@@ -551,13 +561,13 @@ class StrategicGameState:
             return None
 
         anim = self.current_animation
-        now = pygame.time.get_ticks()
+        anim.elapsed_ms += dt_ms
 
         # Check if it's time for next step
-        if now - anim.last_step_time < ANIMATION.move_step_delay_ms:
+        if anim.elapsed_ms < ANIMATION.move_step_delay_ms:
             return "continue"
 
-        # Advance animation
+        # Advance animation (advance() remet l'accumulateur à zéro)
         if not anim.is_complete:
             new_pos = anim.advance()
             anim.unit.position = HexCoord(*new_pos)
@@ -1029,8 +1039,8 @@ def run_strategic_game(
     while True:
         mouse_pos = pygame.mouse.get_pos()
 
-        # Update animation
-        anim_result = game_state.update_animation(tiles)
+        # Update animation (cadence pilotée par le dt de la frame précédente)
+        anim_result = game_state.update_animation(tiles, int(dt * 1000))
         is_animating = anim_result in ("continue",)
 
         # Event handling (block game inputs during animation, allow camera)

@@ -58,10 +58,14 @@ case vide/armée alliée). La traversée reste limitée aux cases vides
 (`can_pass_through` par défaut). Équivalence verrouillée par
 `tests/test_valid_moves_semantics.py`.
 
-### 2.3 Couplage logique ↔ Pygame — ⬜
+### 2.3 Couplage logique ↔ Pygame — 🟡 PARTIEL
 
-- `TacticalBattle` stocke `self.screen`, `self.camera` et lit `pygame.time.get_ticks()` directement → impossible à tester sans afficher une fenêtre.
-- `StrategicGameState` lit aussi `pygame.time.get_ticks()` dans `MoveAnimation.advance`. L'animation devrait être pilotée par un `dt` injecté.
+- ✅ **Horloge** : plus aucun `pygame.time.get_ticks()` dans la logique. Les
+  timers IA (tactique) et l'animation (stratégique, `MoveAnimation.elapsed_ms`)
+  sont pilotés par un `dt_ms` injecté depuis la boucle. Vérifié par
+  `tests/test_turn_flow.py` (cadence dt-driven, sans horloge).
+- ⬜ **screen/camera** : `TacticalBattle` stocke encore `self.screen` et
+  `self.camera`. Reste à extraire (C2) pour découpler totalement le rendu.
 
 ### 2.4 `run_strategic_game` (300 lignes) fait trop — ⬜
 
