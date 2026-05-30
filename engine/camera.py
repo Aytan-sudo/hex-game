@@ -54,6 +54,27 @@ class Camera:
         self.offset_x += dx
         self.offset_y += dy
 
+    def center_on(self, coord, hex_grid, smoothing: float = 1.0):
+        """
+        Centre la vue sur une coordonnée hexagonale.
+
+        Args:
+            coord: HexCoord à centrer à l'écran.
+            hex_grid: HexGrid courant (doit correspondre au zoom de la caméra).
+            smoothing: 1.0 = saut immédiat ; entre 0 et 1 = interpolation
+                (suivi fluide, fraction du chemin parcourue par frame).
+        """
+        world_x, world_y = hex_grid.hex_to_pixel(coord, (0.0, 0.0))
+        target_x = self.screen_width / 2 - world_x
+        target_y = self.screen_height / 2 - world_y
+
+        if smoothing >= 1.0:
+            self.offset_x = target_x
+            self.offset_y = target_y
+        else:
+            self.offset_x += (target_x - self.offset_x) * smoothing
+            self.offset_y += (target_y - self.offset_y) * smoothing
+
     def zoom_in(self) -> bool:
         """
         Zoom in (increase hex size), centered on screen center.

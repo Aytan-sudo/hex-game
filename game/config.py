@@ -40,10 +40,58 @@ class UISettings:
 
 
 @dataclass
+class GameSpeed:
+    """Vitesse de lecture des tours IA et des animations.
+
+    Le facteur multiplie tous les délais : plus il est petit, plus le jeu est
+    rapide. ``Normal`` (1.0) correspond aux délais de base d'origine.
+    """
+    # (libellé, facteur). Pas une dataclass field (non annoté) → variable de classe.
+    LEVELS = (
+        ("Lent", 1.6),
+        ("Normal", 1.0),
+        ("Rapide", 0.45),
+        ("Très rapide", 0.2),
+    )
+    index: int = 1  # "Normal" par défaut
+
+    @property
+    def factor(self) -> float:
+        """Facteur multiplicatif appliqué aux délais."""
+        return self.LEVELS[self.index][1]
+
+    @property
+    def name(self) -> str:
+        """Libellé de la vitesse courante."""
+        return self.LEVELS[self.index][0]
+
+    @classmethod
+    def names(cls) -> list:
+        """Liste des libellés (pour les menus)."""
+        return [name for name, _ in cls.LEVELS]
+
+    def set_by_name(self, name: str) -> None:
+        """Sélectionne une vitesse par son libellé (ignore si inconnu)."""
+        for i, (n, _) in enumerate(self.LEVELS):
+            if n == name:
+                self.index = i
+                return
+
+    def cycle(self, direction: int = 1) -> None:
+        """Passe à la vitesse suivante/précédente (cyclique)."""
+        self.index = (self.index + direction) % len(self.LEVELS)
+
+
+@dataclass
 class AnimationSettings:
     """Animation configuration."""
-    move_step_delay_ms: int = 80  # Delay between each step in milliseconds
+    base_move_step_delay_ms: int = 80  # Délai de base entre deux pas (avant vitesse)
     enabled: bool = True
+
+    @property
+    def move_step_delay_ms(self) -> int:
+        """Délai effectif entre deux pas, ajusté par la vitesse de jeu."""
+        return max(1, int(self.base_move_step_delay_ms * SPEED.factor))
 
 
 @dataclass
@@ -71,10 +119,24 @@ class ProgressionSettings:
 
 @dataclass
 class AISettings:
-    """AI behavior configuration."""
-    action_delay_ms: int = 400        # Delay between AI actions for visibility
-    turn_start_delay_ms: int = 300    # Delay at start of AI turn
-    enabled: bool = True              # Master switch for AI
+    """AI behavior configuration.
+
+    Les délais sont exprimés à vitesse ``Normal`` ; ils sont automatiquement
+    réduits/augmentés selon ``SPEED`` (voir :class:`GameSpeed`).
+    """
+    base_action_delay_ms: int = 400        # Délai de base entre deux actions IA
+    base_turn_start_delay_ms: int = 300    # Délai de base au début d'un tour IA
+    enabled: bool = True                   # Master switch for AI
+
+    @property
+    def action_delay_ms(self) -> int:
+        """Délai effectif entre deux actions, ajusté par la vitesse de jeu."""
+        return max(1, int(self.base_action_delay_ms * SPEED.factor))
+
+    @property
+    def turn_start_delay_ms(self) -> int:
+        """Délai effectif au début d'un tour IA, ajusté par la vitesse de jeu."""
+        return max(1, int(self.base_turn_start_delay_ms * SPEED.factor))
 
 
 @dataclass
@@ -100,6 +162,8 @@ class PlayerColors:
 
 
 # Global configuration instances
+# SPEED doit exister avant ANIMATION/AI car leurs propriétés le référencent.
+SPEED = GameSpeed()
 INPUT = InputSettings()
 UI = UISettings()
 ANIMATION = AnimationSettings()
@@ -116,4 +180,5 @@ DEFAULT_GAME_CONFIG = {
     'player1_armies': 3,
     'player2_armies': 3,
     'add_river': True,
+    'game_speed': 'Normal',
 }

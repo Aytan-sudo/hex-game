@@ -19,7 +19,7 @@ from game.units import create_lancer, create_archer, create_cavalry, create_mage
 from game.heroes import create_hero
 from game.map_generator import MapConfig, MapGenerator
 from game.strategic_map import run_strategic_game
-from game.config import DEFAULT_GAME_CONFIG, UI
+from game.config import DEFAULT_GAME_CONFIG, UI, GameSpeed
 
 
 def generate_test_map(width: int, height: int, add_river: bool = True, seed: int = None) -> dict[tuple[int, int], Tile]:
@@ -189,6 +189,7 @@ class MainMenu:
             ('player1_armies', 'Player 1 Armies', [1, 2, 3, 4, 5, 6]),
             ('player2_armies', 'Player 2 Armies', [1, 2, 3, 4, 5, 6]),
             ('add_river', 'Add River', [True, False]),
+            ('game_speed', 'Game Speed', GameSpeed.names()),
         ]
 
     def run(self) -> dict | None:

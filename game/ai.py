@@ -358,10 +358,15 @@ class TacticalAI:
         if not my_units or not enemies:
             return None
 
-        # Find units that can still act
+        # Find units that can still act.
+        # Une unité agit une seule fois par tour (déplacement + attaque éventuelle
+        # résolus en une activation). On se base donc sur ``has_acted``, qui est
+        # positionné après chaque action dans TacticalBattle._execute_ai_action.
+        # Sans cela, une unité qui ne fait que se déplacer restait « disponible »
+        # et était re-sélectionnée en boucle, multipliant les délais de tour.
         available_units = [
             u for u in my_units
-            if u.is_alive and (u.movement_remaining > 0 or not u.has_acted)
+            if u.is_alive and not u.has_acted
         ]
 
         if not available_units:

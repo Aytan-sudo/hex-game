@@ -20,7 +20,7 @@ from engine.input_handler import CameraController
 from engine.pathfinding import calculate_path_cost, find_path
 from game.tactical_map import run_tactical_battle, BattleReport
 from game.terrain import TerrainType
-from game.config import UI, INPUT, PLAYER_COLORS, ANIMATION, AI
+from game.config import UI, INPUT, PLAYER_COLORS, ANIMATION, AI, SPEED
 from game.ai import AIPlayer, AIPersonality
 
 # Type alias for units that can be selected on strategic map
@@ -278,6 +278,35 @@ class StrategicGameState:
             return ("battle", (attacker, defender, original_pos))
 
         return None
+
+    def current_player_has_moves(
+        self,
+        armies: List[Army],
+        heroes: List[Hero],
+        tiles: Dict[Tuple[int, int], Tile]
+    ) -> bool:
+        """
+        Indique si le joueur courant peut encore bouger une unité ce tour-ci.
+
+        Vrai si au moins une armée (ou un héros indépendant) lui appartenant
+        dispose de points de mouvement ET d'au moins une destination atteignable.
+        Sert à enclencher automatiquement la fin de tour quand il n'y a plus
+        rien à faire.
+        """
+        for army in armies:
+            if army.player_id != self.current_player.id:
+                continue
+            if army.movement_remaining > 0 and self._calculate_valid_moves(army, tiles, heroes):
+                return True
+
+        if heroes:
+            for hero in heroes:
+                if hero.player_id != self.current_player.id or not hero.is_independent:
+                    continue
+                if hero.movement_remaining > 0 and self._calculate_valid_moves(hero, tiles, heroes):
+                    return True
+
+        return False
 
     def end_turn(self, armies: List[Army], heroes: List[Hero] = None):
         """End the current player's turn."""
@@ -993,6 +1022,9 @@ def run_strategic_game(
     """
     heroes = heroes or []
 
+    # Applique la vitesse de jeu choisie dans le menu (IA + animations).
+    SPEED.set_by_name(config.get('game_speed', 'Normal'))
+
     screen_width = screen.get_width()
     screen_height = screen.get_height()
 
@@ -1033,6 +1065,14 @@ def run_strategic_game(
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
+
+            # Réglage de la vitesse IA/animation, accessible à tout moment
+            # (y compris pendant le tour de l'ennemi) : '<' ralentit, '>' accélère.
+            if event.type == pygame.KEYDOWN and event.key in (pygame.K_COMMA, pygame.K_PERIOD):
+                SPEED.cycle(1 if event.key == pygame.K_PERIOD else -1)
+                battle_message = f"Speed: {SPEED.name}"
+                battle_message_timer = 1.5
+                continue
 
             # Always allow camera control
             if camera_controller.handle_event(event, mouse_pos):
@@ -1153,6 +1193,24 @@ def run_strategic_game(
                         if winner is not None:
                             _show_victory_screen(screen, game_state.players[winner], font)
                             return True
+
+        # Pendant le tour de l'IA, la caméra suit l'unité ennemie en mouvement
+        # (glissement fluide) afin que le joueur voie ce que fait l'adversaire.
+        if (game_state.phase == StrategicGamePhase.AI_TURN
+                and game_state.current_animation is not None):
+            camera.center_on(
+                game_state.current_animation.unit.position,
+                camera_controller.hex_grid,
+                smoothing=0.18,
+            )
+
+        # Fin de tour automatique côté joueur humain : dès qu'aucune unité ne
+        # peut plus se déplacer, on enchaîne le tour suivant sans attendre.
+        if (game_state.phase == StrategicGamePhase.PLAYER_TURN
+                and game_state.current_animation is None
+                and pending_battle_data is None
+                and not game_state.current_player_has_moves(armies, heroes, tiles)):
+            game_state.end_turn(armies, heroes)
 
         # Continuous input
         camera_controller.handle_continuous_input()

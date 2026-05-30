@@ -274,6 +274,9 @@ class TacticalBattle:
         # AI turn state
         self._ai_action_timer: int = 0
         self._pending_ai_action: Optional[TacticalAction] = None
+        # Hex sur lequel la caméra doit se recentrer pendant le tour IA
+        # (l'unité en train d'agir), pour que le joueur suive l'action.
+        self.ai_focus: Optional[HexCoord] = None
 
         # Camera
         self.camera = Camera(self.screen_width, self.screen_height)
@@ -490,6 +493,9 @@ class TacticalBattle:
             distance=distance
         )
 
+        # Une attaque consomme l'action de l'unité pour ce tour.
+        attacker.has_acted = True
+
         # Log combat
         self._log_combat(attacker, defender, result)
 
@@ -562,6 +568,23 @@ class TacticalBattle:
         """Check if it's an AI player's turn."""
         return self.current_player_id in self.ai_players
 
+    def current_player_has_actions(self) -> bool:
+        """
+        Indique si le joueur courant peut encore faire quelque chose ce tour-ci.
+
+        Vrai si au moins une de ses unités vivantes peut se déplacer (case
+        atteignable) ou attaquer (cible à portée). Sert à enclencher
+        automatiquement la fin de tour quand il n'y a plus rien à faire.
+        """
+        for unit in self.get_units_for_player(self.current_player_id):
+            if not unit.is_alive:
+                continue
+            if unit.movement_remaining > 0 and self._calculate_valid_moves(unit):
+                return True
+            if not unit.has_acted and self._calculate_valid_attacks(unit):
+                return True
+        return False
+
     def update_ai_turn(self) -> bool:
         """
         Update AI turn logic. Returns True if AI is still acting.
@@ -592,6 +615,10 @@ class TacticalBattle:
 
         if action:
             self._pending_ai_action = action
+            # Recentre la caméra sur l'unité qui va agir : le joueur voit ainsi
+            # ce que fait l'ennemi pendant le tour adverse.
+            if action.unit and action.unit.position:
+                self.ai_focus = action.unit.position
             self._ai_action_timer = current_time + AI.action_delay_ms // 2
             return True
         else:
@@ -609,7 +636,6 @@ class TacticalBattle:
             self.select_unit(unit)
             if action.attack_target and action.attack_target.position:
                 self.try_attack(action.attack_target.position)
-            unit.has_acted = True
 
         elif action.action_type == "move":
             # Just move
@@ -629,6 +655,11 @@ class TacticalBattle:
             if action.attack_target and action.attack_target.position:
                 self.select_unit(unit)  # Re-select to update valid attacks
                 self.try_attack(action.attack_target.position)
+
+        # Une activation par unité et par tour : on marque l'unité comme ayant
+        # agi même pour un simple déplacement, sinon elle est re-sélectionnée en
+        # boucle et le tour IA traîne en longueur.
+        if unit.is_alive:
             unit.has_acted = True
 
         # Clear selection after action
@@ -1088,6 +1119,16 @@ def run_tactical_battle(
         # Update AI turn
         if is_ai_turn and not battle.battle_over:
             battle.update_ai_turn()
+            # Suit l'unité IA en cours d'action (glissement fluide de la caméra).
+            if battle.ai_focus is not None:
+                battle.camera.center_on(
+                    battle.ai_focus, camera_controller.hex_grid, smoothing=0.2
+                )
+        elif not battle.battle_over and not show_report:
+            # Tour humain : si plus aucune action possible, on termine le tour
+            # automatiquement (inutile d'attendre un appui sur Espace).
+            if not battle.current_player_has_actions():
+                battle.end_turn()
 
         camera_controller.handle_continuous_input()
 

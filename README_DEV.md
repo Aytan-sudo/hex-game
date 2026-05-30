@@ -14,13 +14,13 @@ hex-game/
 │   ├── hex_grid.py        # HexCoord, HexGrid (conversions pixel/hex)
 │   ├── tile.py            # Tile (terrain + overlay + unité)
 │   ├── unit.py            # Unit, ArmyUnit, Army, Hero
-│   ├── camera.py          # Zoom multi-niveaux
+│   ├── camera.py          # Zoom multi-niveaux + center_on (suivi d'unité)
 │   ├── combat.py          # CombatSystem (dégâts, contre-attaque)
 │   ├── pathfinding.py     # BFS (valid_moves), Dijkstra (find_path)
 │   └── input_handler.py   # CameraController (drag, zoom)
 │
 ├── game/               # Implémentation du jeu
-│   ├── config.py          # Constantes (INPUT, UI, ANIMATION, BATTLE, AI)
+│   ├── config.py          # Constantes (SPEED, INPUT, UI, ANIMATION, BATTLE, AI)
 │   ├── terrain.py         # TerrainType, OverlayType + configs
 │   ├── units.py           # create_lancer(), create_archer()...
 │   ├── heroes.py          # create_hero(), HERO_CLASSES
@@ -93,13 +93,28 @@ class TacticalAI:           # IA combat - play_turn(), _score_attack(), _score_p
 ## Configuration (`game/config.py`)
 
 ```python
+SPEED = GameSpeed(index=1)   # Lent / Normal / Rapide / Très rapide (facteur ×délais)
 INPUT = InputSettings(drag_threshold=5, scroll_speed=10)
 UI = UISettings(panel_bg_color, text_color, selection_color)
-ANIMATION = AnimationSettings(move_step_delay_ms=80)
+ANIMATION = AnimationSettings(base_move_step_delay_ms=80)
 BATTLE = BattleSettings(map_width=20, map_height=20, max_turns=20)
-AI = AISettings(action_delay_ms=400, turn_start_delay_ms=300)
+AI = AISettings(base_action_delay_ms=400, base_turn_start_delay_ms=300)
 PLAYER_COLORS = PlayerColors(player1=(100,100,255), player2=(255,100,100))
 ```
+
+### Vitesse de jeu (`GameSpeed` / `SPEED`)
+
+Les délais qui rythment le tour IA et les animations sont **dérivés** d'une base
+via la propriété `factor` de `SPEED` :
+
+- `AI.action_delay_ms` = `base_action_delay_ms × SPEED.factor`
+- `AI.turn_start_delay_ms` = `base_turn_start_delay_ms × SPEED.factor`
+- `ANIMATION.move_step_delay_ms` = `base_move_step_delay_ms × SPEED.factor`
+
+La durée d'un tour IA est dominée par ces délais (pacing pour la lisibilité),
+**pas** par le calcul. Niveaux : `Lent` (×1.6), `Normal` (×1.0), `Rapide`
+(×0.45), `Très rapide` (×0.2). Choix dans le menu (`game_speed`), et réglable en
+jeu avec `<` / `>` (touches virgule/point), y compris pendant le tour ennemi.
 
 ---
 
@@ -136,6 +151,23 @@ PLAYER_COLORS = PlayerColors(player1=(100,100,255), player2=(255,100,100))
 ### Modifier le pathfinding
 
 `engine/pathfinding.py` : `calculate_valid_moves()` (BFS), `find_path()` (Dijkstra)
+
+### Déroulement / fin de tour
+
+- **Fin de tour automatique** : la boucle stratégique appelle chaque frame
+  `StrategicGameState.current_player_has_moves()` ; si le joueur humain n'a plus
+  aucune destination atteignable, `end_turn()` est enclenché tout seul. Équivalent
+  tactique : `TacticalBattle.current_player_has_actions()` (déplacement *ou*
+  attaque possible).
+- **Une activation par unité (IA tactique)** : `TacticalAI.play_turn()` filtre sur
+  `not has_acted` et `TacticalBattle._execute_ai_action()` pose `has_acted = True`
+  après **toute** action (y compris un simple déplacement). Sans ça, une unité qui
+  se déplaçait restait « disponible » et était rejouée en boucle, allongeant le
+  tour. `try_attack()` pose aussi `has_acted` (une attaque par unité et par tour).
+- **Caméra qui suit l'ennemi** : pendant le tour IA, la vue glisse vers l'unité
+  active via `Camera.center_on(coord, hex_grid, smoothing)`. Côté stratégique on
+  suit `current_animation.unit.position` ; côté tactique on suit `battle.ai_focus`
+  (posé dans `update_ai_turn`).
 
 ---
 
