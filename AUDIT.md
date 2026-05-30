@@ -17,6 +17,7 @@
 | §2.2 | BFS de mouvement dupliqué (×4 → reste ×3 après suppression du mort) | ⬜ À faire |
 | §2.6 | `attacker_terrain_bonus` ambigu | ⬜ À clarifier |
 | §2.8 | XP/level-up héros décoratif | ✅ Désormais effectif (cf. Reco 5) |
+| Reco 12 | Absence de suite de tests | ✅ Amorcée (`tests/`, `uv run pytest`) |
 | Autres | Voir sections ci-dessous | ⬜ Backlog |
 
 ---

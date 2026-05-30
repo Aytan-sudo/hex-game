@@ -209,18 +209,36 @@ uv run python game/main.py   # lance le jeu
 uv add <paquet>  # ajoute une dépendance
 ```
 
-## Tests rapides
+## Tests
+
+Suite `pytest` dans `tests/` (config dans `pyproject.toml`, `pythonpath = ["."]`).
+Les tests gameplay tournent en **headless** (`SDL_VIDEODRIVER=dummy`, posé par
+`tests/conftest.py`) — pas de fenêtre ouverte.
 
 ```bash
-# Imports
-uv run python -c "from game.terrain import TerrainType; print('OK')"
-uv run python -c "from game.ai import AIPlayer, TacticalAI; print('OK')"
+uv run pytest            # toute la suite
+uv run pytest -k combat  # un sous-ensemble
+```
 
-# Génération carte
-uv run python -c "from game.map_generator import generate_map; print(len(generate_map(20,20)), 'tiles')"
+Couverture actuelle (invariants, pas de couverture exhaustive) :
 
-# Jeu complet
-uv run python game/main.py
+| Fichier | Vérifie |
+|---------|---------|
+| `test_hex_grid.py` | round-trip pixel↔hex, `q+r+s=0`, 6 voisins, distance |
+| `test_pathfinding.py` | budget de mouvement, cases infranchissables, chemins contigus |
+| `test_combat.py` | formule `atk−def/2` (min 1), **régression §2.5** (contre-attaque hors-portée) |
+| `test_map_generator.py` | déterminisme par seed (même hors random global) |
+| `test_config_speed.py` | scaling `GameSpeed` des délais |
+| `test_turn_flow.py` | **tour IA borné** (fix `has_acted`), détection fin de tour auto |
+
+Fixtures utiles (`tests/conftest.py`) : `screen` (surface headless), `make_grid`
+(grille hexagonale d'un terrain donné).
+
+### Vérifs d'import rapides
+
+```bash
+uv run python -c "from game.tactical_map import TacticalBattle; print('OK')"
+uv run python game/main.py   # jeu complet
 ```
 
 ---
