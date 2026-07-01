@@ -98,8 +98,24 @@
 
 ---
 
+## Fondations techniques (dette / qualité)
+
+Piste **en cours** (voir `AUDIT.md` pour le détail et le suivi des corrections).
+
+- [x] Suite de tests `pytest` (`tests/`, `uv run pytest`) — *AUDIT reco 12*
+- [x] Centraliser le BFS de mouvement sur `engine.pathfinding` — *AUDIT §2.2*
+- [x] Timers IA/animation pilotés par `dt` injecté (plus d'horloge murale) — *AUDIT §2.3 (C1)*
+- [ ] Sortir `screen`/`camera` de `TacticalBattle` — *AUDIT §2.3 (C2)*
+- [ ] Éclater `run_strategic_game` (input / animation / batailles) — *AUDIT §2.4*
+- [ ] Rééquilibrage unités (mage/cavalerie, triangle de types) — *AUDIT §3.2*
+
+---
+
 ## Priorités
 
+**Court terme (technique)** : finir le découplage Pygame (C2), puis rééquilibrage.
+
+**Gameplay** :
 1. Combat en collines (carte tactique pour nouveau terrain)
 2. Avantages tactiques de base (couvert, hauteur)
 3. Mini-carte

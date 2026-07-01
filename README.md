@@ -13,19 +13,23 @@ Jeu de stratégie au tour par tour sur plateau hexagonal en Python avec Pygame.
 
 ## Installation
 
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# ou .venv\Scripts\activate  # Windows
+Le projet utilise **[uv](https://docs.astral.sh/uv/)** (dépendances dans
+`pyproject.toml`, verrou `uv.lock`, Python épinglé par `.python-version`).
 
-pip install -r requirements.txt
+```bash
+uv sync   # crée l'environnement et installe les dépendances
 ```
 
 ## Lancer le jeu
 
 ```bash
-source .venv/bin/activate
-python game/main.py
+uv run python game/main.py
+```
+
+## Tests
+
+```bash
+uv run pytest
 ```
 
 ## Contrôles
@@ -42,7 +46,11 @@ python game/main.py
 | Clic gauche | Sélectionner / déplacer |
 | Clic droit | Désélectionner |
 | Espace | Fin de tour |
+| `<` / `>` | Vitesse de jeu (ralentir / accélérer), même pendant le tour ennemi |
 | ESC | Retour au menu |
+
+> Le tour passe **automatiquement** dès qu'aucune unité ne peut plus se déplacer.
+> Pendant le tour ennemi, la caméra suit l'unité qui agit.
 
 ### Carte tactique (combat)
 
@@ -50,7 +58,10 @@ python game/main.py
 |--------|--------|
 | Clic gauche | Sélectionner / attaquer |
 | Espace | Fin de tour |
-| ESC | Auto-résolution |
+| ESC | Abandonner le combat (défaite forcée) |
+
+> La vitesse se règle aussi dans le menu (« Game Speed »). La fin de tour est
+> automatique quand l'unité courante n'a plus d'action possible.
 
 ## Terrains
 
