@@ -2,25 +2,34 @@
 
 Guidance for Claude Code (and any AI agent) working in this repository.
 
-## Documentation maintenance — IMPORTANT
+## Changement de cap — IMPORTANT
 
-`README_DEV.md` is the **living developer guide** for this project (architecture, flux
-d'exécution, classes clés, "guide par fonctionnalité", conventions). It is the source of
-truth for *how the code is organized*.
+Le projet **pivote** d'un wargame hexagonal vers un **jeu de gestion de personnages et de
+royaumes** (inspiré de la *Roue du Temps* / Robin Hobb). La couche de combat tactique existante
+est **conservée mais rétrogradée** (batailles intermédiaires + finale). La vision, les entités
+cibles et la roadmap font foi dans [`PROJET.md`](PROJET.md) — lis-le avant tout travail de
+gameplay.
 
-**You must keep `README_DEV.md` in sync with the code.** Whenever a change affects:
+## Les documents (et lequel maintenir)
 
-- the module/file layout (`engine/`, `game/`),
-- a key class or its responsibilities,
-- the execution flow (`main.py` → strategic → tactical),
-- combat / pathfinding / AI / terrain mechanics described in the guide,
-- the configuration surface in `game/config.py`,
+- **`PROJET.md`** — source de vérité de **l'intention** (vision, entités, boucle de jeu,
+  systèmes, roadmap). À mettre à jour quand la *direction* ou la *conception* évolue.
+- **`README_DEV.md`** — **guide développeur vivant** : source de vérité de *comment le code est
+  organisé aujourd'hui*. Il décrit le **code réel**, pas la cible — ne pas y documenter des
+  modules qui n'existent pas encore (la cible vit dans `PROJET.md`).
+- **`docs/archive/`** — instantanés datés historiques (ex. `AUDIT.md`). **Ne pas réécrire** ;
+  au plus mettre à jour un tableau de suivi.
 
-→ update the relevant section of `README_DEV.md` **in the same change**. Do not let it drift.
+**Tu dois garder `README_DEV.md` synchronisé avec le code.** Quand un changement touche :
 
-`AUDIT.md` is different: it is a **dated, historical snapshot** of a code/design review.
-Do not rewrite its findings — at most update its "Suivi des corrections" status table when
-an audit item is resolved.
+- le découpage modules/fichiers (`engine/`, `game/`),
+- une classe clé ou ses responsabilités,
+- le flux d'exécution,
+- les mécaniques combat / pathfinding / IA / terrain décrites dans le guide,
+- la surface de configuration dans `game/config.py`,
+
+→ mets à jour la section concernée de `README_DEV.md` **dans le même changement**. Ne le laisse
+pas dériver. Si le changement fait avancer la roadmap, reflète-le aussi dans `PROJET.md`.
 
 ## Conventions
 
@@ -49,6 +58,6 @@ uv run python -c "from game.tactical_map import TacticalBattle; print('OK')"
 uv run python game/main.py
 ```
 
-There is no automated test suite yet (see `AUDIT.md` §4 reco 12). Until one exists, verify
-changes with the import checks above and, for gameplay logic, a focused headless script
-(`SDL_VIDEODRIVER=dummy uv run python ...`).
+Une suite `pytest` existe (`tests/`, lancée par `uv run pytest`, headless via
+`SDL_VIDEODRIVER=dummy`). Vérifie tes changements avec elle, les checks d'import ci-dessus, et —
+pour la logique de gameplay — un script headless ciblé (`SDL_VIDEODRIVER=dummy uv run python ...`).

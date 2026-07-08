@@ -1,12 +1,52 @@
 # Guide de Développement - Hex Strategy Game
 
-Guide pour modifier le projet (~7000 lignes de code).
+Guide pour modifier le projet (~6500 lignes de code).
 
-> 📋 Pour l'état des lieux du code et le backlog priorisé, voir [`AUDIT.md`](AUDIT.md)
-> (instantané daté, non maintenu). **Ce `README_DEV.md` est le guide vivant** : il doit
-> rester synchronisé avec le code à chaque changement de structure (cf. `CLAUDE.md`).
+> 📋 Ce `README_DEV.md` décrit **le code réel d'aujourd'hui** et doit rester synchronisé avec
+> lui à chaque changement de structure (cf. `CLAUDE.md`). La **vision cible** et la roadmap
+> vivent dans [`PROJET.md`](PROJET.md). Les instantanés datés (ex. audit) sont dans
+> [`docs/archive/`](docs/archive/).
 
-## Architecture
+---
+
+## ⚠️ Cap : virage vers un jeu de personnages
+
+Le projet **pivote** d'un wargame hexagonal vers un **jeu de gestion de personnages et de
+royaumes** (cf. [`PROJET.md`](PROJET.md)). L'atome passe de l'**armée** au **personnage** ; le
+combat tactique est **conservé mais rétrogradé** (batailles intermédiaires + finale).
+
+**Architecture cible (3 couches)** — *pas encore en place, les modules ci-dessous n'existent pas
+tous* :
+
+```
+engine/          # INCHANGÉ : boîte à outils hex générique (grid, tile, camera, pathfinding, combat, input)
+world/  (NEW)    # Couche CAMPAGNE = cœur : Character, worldgen, settlement/kingdom, actions, events, world_state
+settlement_ui/   # (NEW) écrans d'interaction en ville, dimensionnés par la taille
+military/        # l'actuel game/ militaire, RÉTROGRADÉ, derrière un BattleResolver (auto | tactique)
+```
+
+**Correspondance actuel → cible** (ce que devient chaque module en migrant) :
+
+| Aujourd'hui (`game/`) | Devient | Note |
+|-----------------------|---------|------|
+| `strategic_map.py` (armées poussant des tuiles) | **couche militaire** + base de la carte monde | ce n'est **pas** la future couche stratégique |
+| `tactical_map.py`, `combat.py` | `military/` derrière `BattleResolver` | conservé, appelé rarement |
+| `heroes.py` / `Hero(Unit)` | **`Character`** (composition, pas héritage) | le combat devient une facette (rôle Général) |
+| `ai.py` `AIPlayer` (IA stratégique symétrique) | **« Metteur en scène de l'Ombre »** | main cachée : traîtres / sbires / escalade |
+| `ai.py` `TacticalAI` | conservé | IA des batailles |
+| `map_generator.py` | conservé + greffe settlements/royaumes | terrain gardé (bon) |
+
+**Point pivot technique** : mettre le combat derrière un **`BattleResolver`** (auto-résolution
+*ou* tactique) — ce qui exige d'abord de terminer le découplage rendu/logique du tactique
+(sortir `screen`/`camera` de `TacticalBattle`, seul reliquat des fondations). Voir la roadmap
+dans `PROJET.md`.
+
+Tant qu'un module cible n'est pas construit, **ce guide continue de décrire le code existant
+ci-dessous.** On met à jour au fur et à mesure de la migration.
+
+---
+
+## Architecture (code actuel)
 
 ```
 hex-game/
