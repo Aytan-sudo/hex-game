@@ -26,6 +26,9 @@ an audit item is resolved.
 
 - Code style and naming: see the "Conventions" section of `README_DEV.md`.
 - Comments and docstrings in this project are written in **French**; match the surrounding style.
+- **Dépôt public : pas de mention de co-authoring avec Claude.** N'ajoute aucune ligne
+  `Co-Authored-By: Claude ...` ni « 🤖 Generated with Claude Code » dans les messages de
+  commit, les descriptions de PR, ou tout autre contenu poussé sur ce dépôt.
 
 ## Environment
 
