@@ -98,7 +98,10 @@ settlements / royaumes, conditions de victoire/défaite.
 Moteur **data-driven réactif** : des événements se déclenchent selon l'état du monde et les
 choix du joueur (pas de script figé). Ils **révèlent** des caractéristiques, appliquent des
 bonus/malus, et **jalonnent** la progression (révélation de l'Élu, conditions des royaumes).
-Les **prophéties** sont des arcs longs qui font monter l'Élu en puissance.
+Les **prophéties** sont des arcs longs qui font monter l'Élu en puissance. Distinction clé : les
+**templates** (archétypes d'événements/missions/prophéties + conditions) sont *authorés une
+fois* ; le moteur les **instancie au runtime** selon l'état. On ne « génère » donc pas les
+missions au worldgen (cf. §5.7).
 
 ---
 
@@ -133,10 +136,37 @@ l'**observation** dans le temps.
 
 Les chiffres bruts sont sinon **backlog** (affichage debug seulement).
 
-### 5.2 Rôles émergents
-Pas de rôle écrit. `aptitude(rôle) = f(caractéristiques, missions, cicatrices, réputations)`.
-Chaque rôle (**Général, Diplomate, Gestionnaire, Royauté, Mage**) lit certains attributs et
-agit dans son domaine. La complexité naît de règles simples appliquées à un historique riche.
+### 5.2 Rôles : aptitude émergente vs position attribuée
+Deux notions distinctes, à ne pas confondre :
+
+- **Aptitude / vocation** — à quel point un perso *serait* bon dans un domaine. **Personne ne
+  l'attribue** : elle **émerge** de `aptitude = f(caractéristiques, missions, cicatrices,
+  réputations)` et reste **cachée** (révélation graduelle). *Rien n'est écrit à l'avance.*
+- **Position / charge** — un *poste* réel occupé (« Général de la 3ᵉ armée », « Chef de la
+  Guilde des mages », « Ambassadeur du royaume X »…). Il faut que **quelqu'un l'accorde**, selon
+  l'autorité sur ce poste :
+
+| Poste dans… | Qui décide | Comment |
+|-------------|-----------|---------|
+| **Ta propre sphère** (ta suite, tes armées) | **Le joueur** | Il nomme librement (p. ex. mettre un perso à la tête d'une armée). |
+| **Une institution** (royaume, guilde…) | **L'institution** | Elle **propose** via événement/diplomatie, conditionné (réputation, prophétie) ; le joueur **accepte/refuse** et peut *faire pression* pour l'offre. |
+
+Une position **engage** : elle donne des effets mais impose des **obligations** (mobilité
+réduite, loyauté attendue) et **expose** (cible d'assassinat). Accepter n'est jamais anodin.
+
+**Rôles = données, pas un `enum` figé.** Un rôle se décrit par `(attributs/réputation lus,
+effets accordés, obligations imposées, qui l'accorde, conditions)`. Ajouter « pirate »,
+« explorateur », « chef de guilde » = ajouter une entrée de données. Deux familles :
+
+- **Positions exclusives / politiques** (un seul Chef de Guilde, un général par armée) — rares,
+  disputées : c'est là que vivent la politique et la tension joueur ↔ monde.
+- **Vocations personnelles** (marchand, explorateur, pirate…) — non exclusives, **émergent par
+  l'usage** : à force d'agir dans une voie, le perso *devient* de ce type (l'étiquette et les
+  bonus suivent l'action, sans « choix de classe » figé).
+
+Le **Général** est une position exclusive à modificateurs **par type d'unité** (cf. §3, Armée).
+Tout ce système se branche sur la **réputation par catégories** (§5.3) : une forte réputation
+dans un domaine attire les offres de postes correspondantes → boucle joueur ↔ monde.
 
 ### 5.3 Réputation par catégories
 La réputation est **à facettes** — par **domaine** (guerrier, diplomate, mage…) et par
@@ -158,6 +188,27 @@ peut coûter cher).
 Si l'armée d'un général est attaquée et **détruite**, celui-ci a un **% de chances de mourir**.
 Envoyer l'Élu au front n'est donc jamais gratuit.
 
+### 5.7 Génération du monde (worldgen)
+Le worldgen produit une **structure de données pure** (`WorldState`), **headless** (sans
+Pygame), déterministe et sérialisable. Trois natures de contenu à ne pas confondre :
+
+| Nature | Exemple | Créé quand |
+|--------|---------|-----------|
+| **Templates authorés** (données) | archétypes d'événements / missions / prophéties + conditions | écrits une fois, réutilisés |
+| **Faits semés** (worldgen) | royaumes, persos, Élu, traîtres, potentiels magiques | une fois, au seed |
+| **Instances runtime** | *telle* mission chez *tel* royaume | pendant la partie, par le moteur |
+
+Pipeline en couches (comme la génération de terrain actuelle) : terrain → settlements → royaumes
+(+ conditions) → **roster** de personnages (attributs cachés + portrait + affiliation + couche
+connaissance vierge) → **faits secrets** (Élu parmi les persos initiaux, traîtres, potentiels) →
+main du joueur → ancres d'arcs (lier l'Élu à 1-2 prophéties). Le **reste (missions, incursions)
+est runtime.**
+
+Principes : **un seul RNG semé propagé** (pas de `random` global — dette héritée à corriger) ;
+**concevoir le modèle `Character` avant de le générer** ; boutons d'échelle exposés dans un
+`WorldGenConfig`. Conséquence rejouabilité : **même seed = même monde, mais l'histoire diverge
+selon les choix.**
+
 ---
 
 ## 6. Victoire & défaite
@@ -177,8 +228,11 @@ n'est jamais supprimé — il est encapsulé, puis réutilisé pour les bataille
 - **Phase 0 — Cadrage & doc.** *(en cours)* Figer la vision, homogénéiser la doc.
 - **Phase 1 — Fondations.** Terminer le découplage Pygame et introduire un `BattleResolver`
   (auto-résolution *ou* tactique) pour rendre le combat appelable sans ouvrir de fenêtre.
-- **Phase 2 — Le personnage.** `Character` (composition), génération au seed (attributs cachés,
-  Élu, traîtres), couche `vrai` / `connu` (§5.1).
+- **Phase 2 — Le personnage & worldgen.** *Concevoir avant de générer* : modèle `Character`
+  (composition, couche `vrai`/`connu` §5.1) puis worldgen headless & déterministe (§5.7), par
+  paliers : **A** terrain+settlements+royaumes → **B** roster (attributs+portraits+affiliation)
+  → **C** faits secrets (Élu, traîtres, potentiels) + main du joueur. (**D** arcs/prophéties
+  attend la Phase 5.) Prérequis : **RNG semé unique**.
 - **Phase 3 — Boucle d'actions.** Remplacer « sélectionne armée → bouge » par « sélectionne
   perso → points d'action » (déplacer / recruter / convaincre…).
 - **Phase 4 — Settlements & diplomatie.** Hiérarchie des villes, allégeance, conditions de
@@ -192,7 +246,7 @@ n'est jamais supprimé — il est encapsulé, puis réutilisé pour les bataille
 ## 8. Questions ouvertes (à trancher en avançant)
 
 - **Échelle** : nombre de personnages de départ, nombre de tours avant le déferlement, taille
-  du monde, nombre de royaumes. *(Paramètres à régler.)*
+  du monde, nombre de royaumes. *(À exposer dans `WorldGenConfig`, cf. §5.7.)*
 - **Points d'action** : formule exacte à partir des caractéristiques.
 - **Magie** : mécaniques concrètes des différentes magies (§5.4).
 - **Traîtres** : conditions de bascule, de révélation d'allégeance, marge de manœuvre de l'Ombre.
