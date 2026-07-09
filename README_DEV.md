@@ -76,7 +76,8 @@ hex-game/
 │   └── main.py            # Point d'entrée, MainMenu
 │
 └── world/              # Couche campagne (Phase 2+, headless, sans Pygame)
-    └── character.py       # Character + couche vrai/connu (HiddenValue, label)
+    ├── character.py       # Character + couche vrai/connu (HiddenValue, label, Sexe)
+    └── worldgen.py        # Génération procédurale : generer_character / generer_roster
 ```
 
 ## Flux d'exécution
@@ -147,16 +148,37 @@ class Magie(Enum):   # 6 magies : GUERISON, LIEN_DES_BETES, EMPRISE, ESPRIT, SON
 class GrandLivre:    # reputation_domaine/_royaume (§5.3), cicatrices, missions
 class Position:      # charge accordée (role_id, accordee_par, perimetre)
 class FaitsSecrets:  # allegiance (du_mal/revele), est_elu, potentiels magiques (cachés)
-class Character:     # 4 couches : identité · caractéristiques · grand livre+positions · secrets
-def nouveau_character(id, nom, portrait_id=0, valeurs=None)  # constructeur sans règles
+class Sexe(Enum):    # FEMININ, MASCULIN (pilote portrait/nom ; l'Élu peut être de l'un ou l'autre)
+class Character:     # 4 couches : identité(+sexe) · caractéristiques · grand livre+positions · secrets
+def nouveau_character(id, nom, portrait_id=0, valeurs=None, sexe=…)  # constructeur sans règles
 ```
 
 - **Couche vrai/connu (§5.1, « Option A »)** : l'intervalle connu **contient toujours**
   la vraie valeur — on ne ment jamais, seule la précision augmente. La divineresse =
   `collapse()` (valeur exacte). `KNOWLEDGE_WIDTHS` règle le resserrement.
-- **Hors périmètre volontaire** (à venir) : le **générateur procédural** (profils + budget,
-  faits semés — §5.7, règles à co-concevoir), la dérivation d'**aptitude**, l'**adaptateur de
+- **Hors périmètre volontaire** (à venir) : la dérivation d'**aptitude**, l'**adaptateur de
   combat**, les **mécaniques de magie** (§5.4, backlog). Seule la *forme* des données est figée.
+
+### Génération procédurale (`world/worldgen.py`) — Phase 2
+
+Headless & déterministe (`SeededRNG`). Deux niveaux :
+
+```python
+class Profil(Enum):  # GUERRIER, ERUDIT, COURTISAN, RODEUR, MYSTIQUE (biaisent la distribution)
+class WorldGenConfig # boutons d'échelle (roster_size, quotas, budget, incidence magie…)
+def generer_character(rng, config, *, id, profil=None, calibre=None, sexe=None)
+def generer_roster(rng, config) -> Roster   # personnages + main_depart + elu_id
+```
+
+- **Modèle hybride** : un **calibre** tiré d'une **loi de puissance** (`C = U^p`) fixe le
+  **budget** de points et la **concentration** ; le **profil** donne les **poids** par trait.
+  → pyramide *banals / utiles / exceptionnels* (une signature d'autant plus haute que le calibre).
+- **Roster** : **quota** de compagnons exceptionnels **garanti** (pas laissé au hasard) ; l'**Élu**
+  est **quelconque en surface** mais porte un **potentiel magique très haut caché** (il grandira
+  via la *prophétie des élus*, arc exclusif — moteur narratif Phase 5) ; **traîtres** semés
+  (allégeance cachée, jamais l'Élu) ; **main de départ** (Élu inclus).
+- **Hors périmètre** (à venir) : **noms** (banques par royaume), **banque de portraits**,
+  **placement sur la carte** (dépend du terrain/settlements, palier A), arcs de prophétie.
 
 ### IA (`game/ai.py`)
 
@@ -265,6 +287,8 @@ Ne pas réintroduire de BFS faits-main.
 | Héros | `heroes.py` | `main.py` |
 | Combat | `combat.py` | `tactical_map.py` |
 | Résolution de bataille | `battle_resolver.py` | `strategic_map.py`, `tactical_map.py` |
+| Personnage / génération | `world/character.py`, `world/worldgen.py` | — |
+| Aléa / RNG | `engine/rng.py` | tous les sous-systèmes semés |
 | IA stratégique | `ai.py` | `strategic_map.py` |
 | IA tactique | `ai.py` | `tactical_map.py` |
 | UI stratégique | `strategic_map.py` | `config.py` |
@@ -322,6 +346,7 @@ Couverture actuelle (invariants, pas de couverture exhaustive) :
 | `test_battle_resolver.py` | auto-résolution headless : terminaison, pertes répercutées, reproductibilité par seed |
 | `test_character.py` | couche vrai/connu : invariant (l'intervalle contient la vraie valeur), resserrement, divineresse, label sans chiffre |
 | `test_rng.py` | `SeededRNG` : déterminisme par seed, sous-flux dérivés (reproductibles + indépendants), isolation du random global |
+| `test_worldgen.py` | générateur : déterminisme, pyramide + quota garanti, Élu unique (quelconque en surface, potentiel caché), traîtres, biais de profil |
 
 Fixture utile (`tests/conftest.py`) : `make_grid` (grille hexagonale d'un terrain
 donné). `TacticalBattle` se construit sans écran (logique découplée de Pygame) ;

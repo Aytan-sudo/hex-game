@@ -239,6 +239,17 @@ global, sous-flux dérivés par `derive("étiquette")`)* ; **concevoir le modèl
 le générer** ✅ *(`world/character.py`)* ; boutons d'échelle exposés dans un `WorldGenConfig`.
 Conséquence rejouabilité : **même seed = même monde, mais l'histoire diverge selon les choix.**
 
+**Règles du générateur arrêtées** ✅ *(`world/worldgen.py`)* : modèle **hybride** — un **calibre**
+tiré d'une **loi de puissance** (`C = U^p`) fixe le **budget** de points et la **concentration** ;
+un **profil** (guerrier/érudit/courtisan/rôdeur/mystique) donne les **poids** par trait → pyramide
+**banals / utiles / exceptionnels** (les compagnons *marquent*, et un **quota** d'exceptionnels est
+**garanti**, pas laissé au hasard). Départ : **5 persos** (dont l'Élu) → recrutement jusqu'à ~30-50.
+La **magie** est hors budget : rare (~10 %, plus chez le mystique), en général une seule, potentiel
+faible-souvent/fort-rare. L'**Élu** est **quelconque en surface** mais porte un **potentiel très
+haut caché** et **une magie imposée** ; il **grandit** via *la prophétie des élus* (arc exclusif,
+Phase 5). Le **sexe** est une donnée du perso (l'Élu peut être une femme). La génération pose le
+**socle** ; le jeu ajoute par-dessus (prophéties → montée des valeurs, cicatrices, **artefacts**).
+
 ---
 
 ## 6. Victoire & défaite
@@ -260,13 +271,12 @@ n'est jamais supprimé — il est encapsulé, puis réutilisé pour les bataille
   est de la logique pure, sans `screen` ni `camera`) et `BattleResolver` introduit
   (auto-résolution headless *ou* tactique fenêtré) : le combat est appelable sans ouvrir de
   fenêtre.
-- **Phase 2 — Le personnage & worldgen.** *Concevoir avant de générer.* ✅ **Modèle `Character`
-  codé** (`world/character.py`) : composition, couche `vrai`/`connu` §5.1, 9 caractéristiques,
-  6 magies, grand livre, faits secrets. Reste : le **worldgen** headless & déterministe (§5.7),
-  par paliers **A** terrain+settlements+royaumes → **B** roster (attributs+portraits+affiliation)
-  → **C** faits secrets (Élu, traîtres, potentiels) + main du joueur. (**D** arcs/prophéties
-  attend la Phase 5.) Prérequis restant : **RNG semé unique** + les **règles du générateur** de
-  personnages (profils + budget), à co-concevoir avant de coder `generer_character`.
+- **Phase 2 — Le personnage & worldgen.** *Concevoir avant de générer.* ✅ **Modèle `Character`**
+  (`world/character.py`) + **RNG semé unique** (`engine/rng.py`) + **générateur de personnages &
+  de roster** (`world/worldgen.py` : palier **B** attributs/sexe/potentiels + palier **C** Élu,
+  traîtres, main du joueur). Reste du worldgen : palier **A** (terrain+settlements+royaumes) et le
+  **placement** des persos sur la carte, plus **noms** (banques par royaume) et **portraits**.
+  (**D** arcs/prophéties attend la Phase 5.)
 - **Phase 3 — Boucle d'actions.** Remplacer « sélectionne armée → bouge » par « sélectionne
   perso → points d'action » (déplacer / recruter / convaincre…).
 - **Phase 4 — Settlements & diplomatie.** Hiérarchie des villes, allégeance, conditions de

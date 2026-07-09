@@ -147,6 +147,12 @@ class Magie(Enum):
     ANCIENS = "anciens"                # relier : pierres de portail, artefacts, forge
 
 
+class Sexe(Enum):
+    """Sexe du personnage — pilote portrait et nom. L'Élu peut être de l'un ou l'autre."""
+    FEMININ = "féminin"
+    MASCULIN = "masculin"
+
+
 # =============================================================================
 # GRAND LIVRE (§5.2 / §5.3) — append-only, l'accumulation qui façonne le perso
 # =============================================================================
@@ -223,7 +229,8 @@ class Character:
     portrait_id: int
     # 2. Caractéristiques primaires (la source ; couche vrai/connu)
     caracteristiques: Dict[Trait, HiddenValue]
-    # 1 (suite) — affiliation/position sur la carte
+    # 1 (suite) — identité, affiliation/position sur la carte
+    sexe: Sexe = Sexe.MASCULIN
     affiliation: Optional[int] = None  # faction qui le contrôle ; None = indépendant
     location: Optional[object] = None  # HexCoord | ref. settlement (durci en Phase 4)
     # 3. Grand livre + positions occupées
@@ -238,6 +245,7 @@ def nouveau_character(
     nom: str,
     portrait_id: int = 0,
     valeurs: Optional[Dict[Trait, int]] = None,
+    sexe: Sexe = Sexe.MASCULIN,
     **extra,
 ) -> Character:
     """
@@ -245,11 +253,11 @@ def nouveau_character(
     à connaissance vierge (niveau 0). Valeurs manquantes → 0.
 
     Constructeur **déterministe et sans règles** : les valeurs sont posées telles
-    quelles. La génération procédurale (profils, budget, faits secrets semés)
-    viendra dans le générateur du worldgen (PROJET §5.7) — conçu séparément.
+    quelles. La génération procédurale (profils, budget, faits secrets semés) vit
+    dans ``world/worldgen.py`` (PROJET §5.7).
     """
     valeurs = valeurs or {}
     caracs = {trait: HiddenValue(true_value=valeurs.get(trait, 0)) for trait in Trait}
     return Character(
-        id=id, nom=nom, portrait_id=portrait_id, caracteristiques=caracs, **extra
+        id=id, nom=nom, portrait_id=portrait_id, caracteristiques=caracs, sexe=sexe, **extra
     )
