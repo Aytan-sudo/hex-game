@@ -70,6 +70,15 @@ combat. Il porte :
   et l'unique flag **Élu** ;
 - un **portrait** (banque d'images) et un état de **connaissance** par attribut (cf. §5.1).
 
+**Les 9 caractéristiques arrêtées** (règle : chacune porte un levier qu'aucune autre ne porte
+seule) : **Puissance** (combat brut), **Vivacité** (initiative/furtivité → assassinat fin),
+**Vigueur** (points d'action, endurance), **Intelligence** (stratégie, gestion), **Perspicacité**
+(juger autrui → révèle ses attributs cachés, détecte les traîtres), **Volonté** (résiste à
+l'Ombre + garde-fou de la magie), **Charisme** (recrutement, ralliement), **Commandement**
+(bonus de général), **Chance/Destinée** (infléchit les tirages, dont la mort du général §5.6).
+Une 10ᵉ, **Noblesse** (ouvre les positions royales), reste à creuser. La **magie n'est pas** une
+caractéristique : c'est un **fait secret** rare (cf. §5.4). *Modèle codé : `world/character.py`.*
+
 ### Armée & Général
 Une armée est un stack d'unités typées (infanterie, archers, cavalerie…). Un **général n'est
 pas une unité** : c'est un *personnage exerçant le rôle Général*, qui applique des
@@ -136,6 +145,13 @@ l'**observation** dans le temps.
 
 Les chiffres bruts sont sinon **backlog** (affichage debug seulement).
 
+**Modèle retenu (« Option A », codé dans `world/character.py`) :** chaque valeur cachée porte
+une `true_value` (0-100, semée) + un `knowledge_level`. L'intervalle affiché **contient toujours
+la vraie valeur** — le jeu ne *ment* jamais, il ne fait qu'*imprécis* ; seule la précision monte.
+La divineresse = `collapse()` (niveau max, intervalle nul). L'UI ne lit que le `label`. *(Un biais
+d'estimation — pouvoir se tromper sur une stat — reste possible plus tard en simple terme du
+label, sans changer le stockage ; on ne l'active pas.)*
+
 ### 5.2 Rôles : aptitude émergente vs position attribuée
 Deux notions distinctes, à ne pas confondre :
 
@@ -173,10 +189,24 @@ La réputation est **à facettes** — par **domaine** (guerrier, diplomate, mag
 **royaume**. C'est le levier central de la diplomatie : convaincre un royaume dépend de la
 réputation pertinente, pas d'une jauge unique.
 
-### 5.4 Magie *(vision — mécaniques en backlog)*
-Plusieurs magies coexistent : potentiels différenciés à la RdT, plus une inspiration de
-*l'Art et le Vif* de Hobb (autres pistes à explorer). Le **potentiel** est une caractéristique
-**cachée**, révélée par les événements. Les règles précises restent à concevoir.
+### 5.4 Magie *(6 magies arrêtées — mécaniques de sorts en backlog)*
+Le **potentiel** magique est un **fait secret** rare (souvent nul), **caché** et révélé par les
+événements — pas une caractéristique. La **Volonté** en est le garde-fou (sur-usage = cicatrice,
+voire la mort, à la RdT). Chaque magie a un **verbe stratégique** distinct (règle : deux verbes
+identiques ⇒ on fusionne) :
+
+| Magie | Verbe | Ce qu'elle débloque | Inspiration |
+|-------|-------|---------------------|-------------|
+| **Guérison** | *survivre* | baisse le % de mort du général (§5.6), efface des cicatrices | Spirit RdT / Art Hobb |
+| **Lien des bêtes** | *éclairer* | scout par les yeux d'un animal, sentir l'embuscade, compagnon lié | le Vif de Hobb |
+| **Emprise** (éléments) | *forcer* | destruction (bataille finale), sièges, travaux de terrain | les Éléments RdT |
+| **Esprit** | *subvertir* | booste la diplomatie, **révèle l'allégeance**, Compulsion (double tranchant) | Compulsion RdT / Art Hobb |
+| **Songe** | *prévoir* | fait avancer les prophéties, indices sur l'Élu / les traîtres, pressent les incursions | Tel'aran'rhiod + Prescience + Prophète Blanc |
+| **Anciens** | *relier* | active les artefacts isolés et les **pierres de portail** (téléportation bornée), forge (backlog) | Portal Stones + ter'angreal (Elayne) |
+
+Un perso qui *peut* toucher la magie en a en général **une seule** (rarement deux). Les
+**mécaniques concrètes** des sorts restent à concevoir ; seule la *représentation* (potentiels
+cachés typés) est figée (`Magie` dans `world/character.py`).
 
 ### 5.5 Duels & assassinat
 Bien que non-unités, les personnages peuvent **s'affronter en duel** (dérivé de certaines
@@ -230,11 +260,13 @@ n'est jamais supprimé — il est encapsulé, puis réutilisé pour les bataille
   est de la logique pure, sans `screen` ni `camera`) et `BattleResolver` introduit
   (auto-résolution headless *ou* tactique fenêtré) : le combat est appelable sans ouvrir de
   fenêtre.
-- **Phase 2 — Le personnage & worldgen.** *Concevoir avant de générer* : modèle `Character`
-  (composition, couche `vrai`/`connu` §5.1) puis worldgen headless & déterministe (§5.7), par
-  paliers : **A** terrain+settlements+royaumes → **B** roster (attributs+portraits+affiliation)
+- **Phase 2 — Le personnage & worldgen.** *Concevoir avant de générer.* ✅ **Modèle `Character`
+  codé** (`world/character.py`) : composition, couche `vrai`/`connu` §5.1, 9 caractéristiques,
+  6 magies, grand livre, faits secrets. Reste : le **worldgen** headless & déterministe (§5.7),
+  par paliers **A** terrain+settlements+royaumes → **B** roster (attributs+portraits+affiliation)
   → **C** faits secrets (Élu, traîtres, potentiels) + main du joueur. (**D** arcs/prophéties
-  attend la Phase 5.) Prérequis : **RNG semé unique**.
+  attend la Phase 5.) Prérequis restant : **RNG semé unique** + les **règles du générateur** de
+  personnages (profils + budget), à co-concevoir avant de coder `generer_character`.
 - **Phase 3 — Boucle d'actions.** Remplacer « sélectionne armée → bouge » par « sélectionne
   perso → points d'action » (déplacer / recruter / convaincre…).
 - **Phase 4 — Settlements & diplomatie.** Hiérarchie des villes, allégeance, conditions de

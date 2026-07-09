@@ -31,7 +31,7 @@ military/        # l'actuel game/ militaire, RÉTROGRADÉ, derrière un BattleRe
 |-----------------------|---------|------|
 | `strategic_map.py` (armées poussant des tuiles) | **couche militaire** + base de la carte monde | ce n'est **pas** la future couche stratégique |
 | `tactical_map.py`, `combat.py` | `military/` derrière `BattleResolver` | conservé, appelé rarement |
-| `heroes.py` / `Hero(Unit)` | **`Character`** (composition, pas héritage) | le combat devient une facette (rôle Général) |
+| `heroes.py` / `Hero(Unit)` | **`Character`** (composition, pas héritage) | modèle amorcé dans `world/character.py` ; le combat deviendra une facette (rôle Général) |
 | `ai.py` `AIPlayer` (IA stratégique symétrique) | **« Metteur en scène de l'Ombre »** | main cachée : traîtres / sbires / escalade |
 | `ai.py` `TacticalAI` | conservé | IA des batailles |
 | `map_generator.py` | conservé + greffe settlements/royaumes | terrain gardé (bon) |
@@ -73,6 +73,9 @@ hex-game/
 │   ├── battle_resolver.py # BattleResolver (AUTO headless | TACTICAL fenêtré)
 │   ├── tactical_map.py    # TacticalBattle (logique pure), TacticalRenderer
 │   └── main.py            # Point d'entrée, MainMenu
+│
+└── world/              # Couche campagne (Phase 2+, headless, sans Pygame)
+    └── character.py       # Character + couche vrai/connu (HiddenValue, label)
 ```
 
 ## Flux d'exécution
@@ -127,6 +130,32 @@ class ArmyUnit:     # Unité avec count (ex: 5 archers)
 class Army:         # Stack d'unités, peut avoir un Hero
 class Hero:         # hero_class, level, xp, is_independent
 ```
+
+### Personnage (`world/character.py`) — couche campagne, Phase 2
+
+**Composition, pas héritage** : `Character` n'est pas une unité de combat. Les
+caractéristiques sont la source ; aptitudes, points d'action et stats de combat se
+**dérivent** (fonctions pures, rien de stocké). Voir PROJET.md §3 / §5.1.
+
+```python
+class HiddenValue:   # true_value (0-100, semé) + knowledge_level ; known_interval(), reveal(), collapse()
+def label(hv):       # rendu UI ("inconnu" → "semble faible" → "faible à moyen" → …) ; JAMAIS un chiffre
+class Trait(Enum):   # 9 caractéristiques : PUISSANCE, VIVACITE, VIGUEUR, INTELLIGENCE,
+                     #   PERSPICACITE, VOLONTE, CHARISME, COMMANDEMENT, CHANCE
+class Magie(Enum):   # 6 magies : GUERISON, LIEN_DES_BETES, EMPRISE, ESPRIT, SONGE, ANCIENS
+class GrandLivre:    # reputation_domaine/_royaume (§5.3), cicatrices, missions
+class Position:      # charge accordée (role_id, accordee_par, perimetre)
+class FaitsSecrets:  # allegiance (du_mal/revele), est_elu, potentiels magiques (cachés)
+class Character:     # 4 couches : identité · caractéristiques · grand livre+positions · secrets
+def nouveau_character(id, nom, portrait_id=0, valeurs=None)  # constructeur sans règles
+```
+
+- **Couche vrai/connu (§5.1, « Option A »)** : l'intervalle connu **contient toujours**
+  la vraie valeur — on ne ment jamais, seule la précision augmente. La divineresse =
+  `collapse()` (valeur exacte). `KNOWLEDGE_WIDTHS` règle le resserrement.
+- **Hors périmètre volontaire** (à venir) : le **générateur procédural** (profils + budget,
+  faits semés — §5.7, règles à co-concevoir), la dérivation d'**aptitude**, l'**adaptateur de
+  combat**, les **mécaniques de magie** (§5.4, backlog). Seule la *forme* des données est figée.
 
 ### IA (`game/ai.py`)
 
@@ -287,6 +316,7 @@ Couverture actuelle (invariants, pas de couverture exhaustive) :
 | `test_config_speed.py` | scaling `GameSpeed` des délais |
 | `test_turn_flow.py` | **tour IA borné** (fix `has_acted`), détection fin de tour auto |
 | `test_battle_resolver.py` | auto-résolution headless : terminaison, pertes répercutées, reproductibilité par seed |
+| `test_character.py` | couche vrai/connu : invariant (l'intervalle contient la vraie valeur), resserrement, divineresse, label sans chiffre |
 
 Fixture utile (`tests/conftest.py`) : `make_grid` (grille hexagonale d'un terrain
 donné). `TacticalBattle` se construit sans écran (logique découplée de Pygame) ;
