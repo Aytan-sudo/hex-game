@@ -15,7 +15,8 @@ from game.terrain import TerrainType
 from game.tactical_map import TacticalBattle
 
 
-def _make_battle(screen):
+def _make_battle():
+    # C2 : TacticalBattle est de la logique pure — aucun écran requis.
     attacker = Army("Att", player_id=0)
     for u in (create_lancer(8), create_archer(4)):
         attacker.add_unit(u)
@@ -23,15 +24,15 @@ def _make_battle(screen):
     for u in (create_cavalry(6), create_lancer(5)):
         defender.add_unit(u)
     return TacticalBattle(
-        attacker, defender, screen,
+        attacker, defender,
         strategic_terrain=TerrainType.PLAINS,
         ai_players={0: AIPersonality.AGGRESSIVE, 1: AIPersonality.DEFENSIVE},
     )
 
 
-def test_tactical_ai_turn_is_bounded(screen):
+def test_tactical_ai_turn_is_bounded():
     """Le nombre d'actions IA d'un tour ne dépasse pas le nombre d'unités."""
-    battle = _make_battle(screen)
+    battle = _make_battle()
     ai = battle.ai_players[battle.current_player_id]
     n_units = len(battle.get_units_for_player(battle.current_player_id))
 
@@ -51,9 +52,9 @@ def test_tactical_ai_turn_is_bounded(screen):
     )
 
 
-def test_attack_marks_unit_acted(screen):
+def test_attack_marks_unit_acted():
     """try_attack pose has_acted (corrige le multi-attaque côté humain)."""
-    battle = _make_battle(screen)
+    battle = _make_battle()
     # Place deux ennemis adjacents pour garantir une attaque possible.
     units_p0 = battle.get_units_for_player(0)
     enemies = battle.get_enemy_units(0)
@@ -73,17 +74,17 @@ def test_attack_marks_unit_acted(screen):
     assert attacker.has_acted
 
 
-def test_tactical_has_actions_true_at_start(screen):
-    battle = _make_battle(screen)
+def test_tactical_has_actions_true_at_start():
+    battle = _make_battle()
     assert battle.current_player_has_actions() is True
 
 
-def test_tactical_ai_is_dt_driven(screen):
+def test_tactical_ai_is_dt_driven():
     """
     C1 : la cadence IA dépend de ``dt_ms`` injecté, pas de l'horloge murale.
     Tant que le délai n'est pas écoulé (dt=0), l'action reste en attente.
     """
-    battle = _make_battle(screen)
+    battle = _make_battle()
     # 1er appel : le timer démarre à 0 -> l'IA choisit une action en attente.
     battle.update_ai_turn(dt_ms=0)
     assert battle._pending_ai_action is not None
@@ -95,9 +96,9 @@ def test_tactical_ai_is_dt_driven(screen):
     assert battle._pending_ai_action is None
 
 
-def test_tactical_ai_turn_completes_via_dt(screen):
+def test_tactical_ai_turn_completes_via_dt():
     """En pompant ``update_ai_turn`` avec du dt, le tour IA se termine (sans horloge)."""
-    battle = _make_battle(screen)
+    battle = _make_battle()
     start = battle.current_player_id
     for _ in range(300):
         battle.update_ai_turn(dt_ms=10_000)

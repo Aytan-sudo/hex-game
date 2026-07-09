@@ -15,6 +15,7 @@
 | §2.7 | Héros non déployé en bataille tactique | ✅ Corrigé (`tactical_map.py`) |
 | Reco 5 | Gain d'XP héros post-bataille | ✅ Branché (`tactical_map._resolve_hero_outcomes`) |
 | §2.2 | BFS de mouvement dupliqué (×4 → reste ×3 après suppression du mort) | ✅ Centralisé sur `engine.pathfinding` |
+| §2.3 | Couplage logique ↔ Pygame | ✅ Résolu (horloge dt-driven, puis `screen`/`camera` sortis de `TacticalBattle`) |
 | §2.6 | `attacker_terrain_bonus` ambigu | ⬜ À clarifier |
 | §2.8 | XP/level-up héros décoratif | ✅ Désormais effectif (cf. Reco 5) |
 | Reco 12 | Absence de suite de tests | ✅ Amorcée (`tests/`, `uv run pytest`) |
@@ -58,14 +59,15 @@ case vide/armée alliée). La traversée reste limitée aux cases vides
 (`can_pass_through` par défaut). Équivalence verrouillée par
 `tests/test_valid_moves_semantics.py`.
 
-### 2.3 Couplage logique ↔ Pygame — 🟡 PARTIEL
+### 2.3 Couplage logique ↔ Pygame — ✅ RÉSOLU
 
 - ✅ **Horloge** : plus aucun `pygame.time.get_ticks()` dans la logique. Les
   timers IA (tactique) et l'animation (stratégique, `MoveAnimation.elapsed_ms`)
   sont pilotés par un `dt_ms` injecté depuis la boucle. Vérifié par
   `tests/test_turn_flow.py` (cadence dt-driven, sans horloge).
-- ⬜ **screen/camera** : `TacticalBattle` stocke encore `self.screen` et
-  `self.camera`. Reste à extraire (C2) pour découpler totalement le rendu.
+- ✅ **screen/camera** (C2) : sortis de `TacticalBattle` vers la couche vue
+  (`run_tactical_battle` / `TacticalRenderer`). La logique de bataille se
+  construit et se résout sans display Pygame.
 
 ### 2.4 `run_strategic_game` (300 lignes) fait trop — ⬜
 
@@ -183,7 +185,7 @@ Formule : `dégâts = atk - def/2` (min 1), ±20 % rng.
 
 ### Long terme
 10. ⬜ Mini-carte + prévisualisation de combat.
-11. ⬜ Séparer logique/render au tactique (retirer screen/camera de `TacticalBattle`).
+11. ✅ Séparer logique/render au tactique (retirer screen/camera de `TacticalBattle`).
 12. ⬜ Suite de tests (invariants pathfinding, formule combat, génération de map).
 
 ---

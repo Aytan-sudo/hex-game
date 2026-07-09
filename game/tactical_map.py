@@ -211,25 +211,24 @@ class TacticalBattle:
 
     Creates a small battlefield and places units from both armies.
     Combat is resolved turn by turn until one side is eliminated.
+
+    Logique pure : aucune dépendance à Pygame (ni écran, ni caméra). Le rendu
+    et l'état de vue vivent dans ``TacticalRenderer`` / ``run_tactical_battle``,
+    ce qui permet de résoudre une bataille sans ouvrir de fenêtre.
     """
 
     def __init__(
         self,
         attacker: Army,
         defender: Army,
-        screen: pygame.Surface,
         strategic_terrain: TerrainType = TerrainType.PLAINS,
         seed: Optional[int] = None,
         ai_players: Optional[Dict[int, AIPersonality]] = None
     ):
         self.attacker = attacker
         self.defender = defender
-        self.screen = screen
         self.strategic_terrain = strategic_terrain
         self.seed = seed or random.randint(0, 999999)
-
-        self.screen_width = screen.get_width()
-        self.screen_height = screen.get_height()
 
         # Generate tactical map
         self.tiles = _generate_tactical_map(
@@ -277,20 +276,6 @@ class TacticalBattle:
         # Hex sur lequel la caméra doit se recentrer pendant le tour IA
         # (l'unité en train d'agir), pour que le joueur suive l'action.
         self.ai_focus: Optional[HexCoord] = None
-
-        # Camera
-        self.camera = Camera(self.screen_width, self.screen_height)
-        self.camera.zoom_index = 6  # 48px - comfortable for tactical view
-        self._center_camera()
-
-    def _center_camera(self):
-        """Center camera on the tactical map."""
-        center_x = BATTLE.map_width * self.camera.hex_size * 1.5
-        center_y = BATTLE.map_height * self.camera.hex_size * 1.3
-        self.camera.set_offset(
-            self.screen_width / 2 - center_x / 2,
-            self.screen_height / 2 - center_y / 2
-        )
 
     def _deploy_units(self):
         """Deploy units from both armies onto the battlefield."""
@@ -781,13 +766,33 @@ class TacticalBattle:
 # TACTICAL RENDERER
 # =============================================================================
 
+def _create_battle_camera(screen_width: int, screen_height: int) -> Camera:
+    """Crée la caméra de bataille, centrée sur le champ de bataille."""
+    camera = Camera(screen_width, screen_height)
+    camera.zoom_index = 6  # 48px - comfortable for tactical view
+    center_x = BATTLE.map_width * camera.hex_size * 1.5
+    center_y = BATTLE.map_height * camera.hex_size * 1.3
+    camera.set_offset(
+        screen_width / 2 - center_x / 2,
+        screen_height / 2 - center_y / 2
+    )
+    return camera
+
+
 class TacticalRenderer:
     """Handles all rendering for tactical battles."""
 
-    def __init__(self, screen: pygame.Surface, font: pygame.font.Font, title_font: pygame.font.Font):
+    def __init__(
+        self,
+        screen: pygame.Surface,
+        font: pygame.font.Font,
+        title_font: pygame.font.Font,
+        camera: Camera
+    ):
         self.screen = screen
         self.font = font
         self.title_font = title_font
+        self.camera = camera
         self.screen_width = screen.get_width()
         self.screen_height = screen.get_height()
 
@@ -814,13 +819,13 @@ class TacticalRenderer:
         """Render battlefield tiles."""
         for coord_tuple, tile in battle.tiles.items():
             coord = HexCoord(*coord_tuple)
-            center = hex_grid.hex_to_pixel(coord, battle.camera.offset)
+            center = hex_grid.hex_to_pixel(coord, self.camera.offset)
 
             # Culling
-            if not self._is_on_screen(center, battle.camera.hex_size):
+            if not self._is_on_screen(center, self.camera.hex_size):
                 continue
 
-            vertices = hex_grid.get_hex_corners(coord, battle.camera.offset)
+            vertices = hex_grid.get_hex_corners(coord, self.camera.offset)
             color = self._get_tile_color(tile, coord_tuple, battle)
 
             pygame.draw.polygon(self.screen, color, vertices)
@@ -854,10 +859,10 @@ class TacticalRenderer:
             if not unit.is_alive or unit.position is None:
                 continue
 
-            center = hex_grid.hex_to_pixel(unit.position, battle.camera.offset)
+            center = hex_grid.hex_to_pixel(unit.position, self.camera.offset)
             x, y = int(center[0]), int(center[1])
             color = player_colors.get(unit.player_id, (200, 200, 200))
-            radius = int(battle.camera.hex_size * 0.4)
+            radius = int(self.camera.hex_size * 0.4)
 
             # Unit circle
             pygame.draw.circle(self.screen, color, (x, y), radius)
@@ -874,7 +879,7 @@ class TacticalRenderer:
             self.screen.blit(text, text_rect)
 
             # HP bar
-            self._render_hp_bar(x, y, radius, unit, battle.camera.hex_size)
+            self._render_hp_bar(x, y, radius, unit, self.camera.hex_size)
 
     def _render_hp_bar(self, x: int, y: int, radius: int, unit: TacticalUnit, hex_size: int):
         """Render HP bar under a unit."""
@@ -1066,14 +1071,17 @@ def run_tactical_battle(
 
     Returns the battle report when complete.
     """
-    battle = TacticalBattle(attacker, defender, screen, strategic_terrain, ai_players=ai_players)
+    battle = TacticalBattle(attacker, defender, strategic_terrain, ai_players=ai_players)
+
+    # État de vue (caméra, rendu) : entièrement hors de TacticalBattle.
+    camera = _create_battle_camera(screen.get_width(), screen.get_height())
     camera_controller = CameraController(
-        battle.camera, INPUT.drag_threshold, INPUT.scroll_speed, INPUT.fast_scroll_multiplier
+        camera, INPUT.drag_threshold, INPUT.scroll_speed, INPUT.fast_scroll_multiplier
     )
 
     font = pygame.font.Font(None, 24)
     title_font = pygame.font.Font(None, 36)
-    renderer = TacticalRenderer(screen, font, title_font)
+    renderer = TacticalRenderer(screen, font, title_font, camera)
     clock = pygame.time.Clock()
 
     running = True
@@ -1102,7 +1110,7 @@ def run_tactical_battle(
 
             elif event.type == pygame.MOUSEBUTTONDOWN and not show_report and not is_ai_turn:
                 if event.button == 1:
-                    _handle_left_click(battle, camera_controller.hex_grid, mouse_pos)
+                    _handle_left_click(battle, camera_controller.hex_grid, camera, mouse_pos)
                 else:
                     camera_controller.handle_event(event, mouse_pos)
 
@@ -1123,7 +1131,7 @@ def run_tactical_battle(
             battle.update_ai_turn(dt_ms)
             # Suit l'unité IA en cours d'action (glissement fluide de la caméra).
             if battle.ai_focus is not None:
-                battle.camera.center_on(
+                camera.center_on(
                     battle.ai_focus, camera_controller.hex_grid, smoothing=0.2
                 )
         elif not battle.battle_over and not show_report:
@@ -1148,10 +1156,11 @@ def run_tactical_battle(
 def _handle_left_click(
     battle: TacticalBattle,
     hex_grid: HexGrid,
+    camera: Camera,
     mouse_pos: Tuple[int, int]
 ):
     """Handle left click on tactical map."""
-    clicked_hex = hex_grid.pixel_to_hex(mouse_pos[0], mouse_pos[1], battle.camera.offset)
+    clicked_hex = hex_grid.pixel_to_hex(mouse_pos[0], mouse_pos[1], camera.offset)
     clicked_tuple = clicked_hex.to_tuple()
 
     if clicked_tuple not in battle.tiles:

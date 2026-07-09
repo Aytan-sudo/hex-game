@@ -1,10 +1,10 @@
 """
 Configuration et fixtures partagées pour la suite de tests.
 
-On force le driver vidéo SDL en mode « dummy » avant tout import de pygame :
-les composants logiques (ex. ``TacticalBattle``) exigent un ``screen`` mais on
-ne veut pas ouvrir de fenêtre. Voir AUDIT §2.3 (couplage logique ↔ Pygame) :
-tant que ce couplage existe, les tests gameplay passent par cette fixture.
+On force le driver vidéo SDL en mode « dummy » avant tout import de pygame,
+pour que la session s'initialise sans ouvrir de fenêtre. La logique de jeu
+elle-même (ex. ``TacticalBattle``) est découplée de Pygame (AUDIT §2.3 résolu)
+et se construit sans écran.
 """
 
 import os
@@ -26,12 +26,6 @@ def _pygame_session():
     pygame.display.set_mode((320, 240))
     yield
     pygame.quit()
-
-
-@pytest.fixture
-def screen():
-    """Surface d'affichage headless (pour les objets qui exigent un screen)."""
-    return pygame.display.get_surface()
 
 
 @pytest.fixture

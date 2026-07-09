@@ -37,9 +37,10 @@ military/        # l'actuel game/ militaire, RÉTROGRADÉ, derrière un BattleRe
 | `map_generator.py` | conservé + greffe settlements/royaumes | terrain gardé (bon) |
 
 **Point pivot technique** : mettre le combat derrière un **`BattleResolver`** (auto-résolution
-*ou* tactique) — ce qui exige d'abord de terminer le découplage rendu/logique du tactique
-(sortir `screen`/`camera` de `TacticalBattle`, seul reliquat des fondations). Voir la roadmap
-dans `PROJET.md`.
+*ou* tactique). Le prérequis — découpler rendu et logique du tactique — est **fait** :
+`TacticalBattle` est de la logique pure (ni `screen` ni `camera` ; l'état de vue vit dans
+`run_tactical_battle` / `TacticalRenderer`), une bataille se résout donc sans ouvrir de
+fenêtre. Voir la roadmap dans `PROJET.md`.
 
 Tant qu'un module cible n'est pas construit, **ce guide continue de décrire le code existant
 ci-dessous.** On met à jour au fur et à mesure de la migration.
@@ -277,8 +278,10 @@ Couverture actuelle (invariants, pas de couverture exhaustive) :
 | `test_config_speed.py` | scaling `GameSpeed` des délais |
 | `test_turn_flow.py` | **tour IA borné** (fix `has_acted`), détection fin de tour auto |
 
-Fixtures utiles (`tests/conftest.py`) : `screen` (surface headless), `make_grid`
-(grille hexagonale d'un terrain donné).
+Fixture utile (`tests/conftest.py`) : `make_grid` (grille hexagonale d'un terrain
+donné). `TacticalBattle` se construit sans écran (logique découplée de Pygame) ;
+la session pygame headless reste initialisée par `conftest.py` pour les modules
+qui importent Pygame.
 
 ### Vérifs d'import rapides
 
