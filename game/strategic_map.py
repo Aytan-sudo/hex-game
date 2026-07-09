@@ -18,7 +18,8 @@ from engine.unit import Army, Hero
 from engine.camera import Camera
 from engine.input_handler import CameraController
 from engine.pathfinding import calculate_path_cost, find_path, calculate_valid_moves
-from game.tactical_map import run_tactical_battle, BattleReport
+from game.battle_resolver import BattleResolver, BattleMode
+from game.tactical_map import BattleReport
 from game.terrain import TerrainType
 from game.config import UI, INPUT, PLAYER_COLORS, ANIMATION, AI, SPEED
 from game.ai import AIPlayer, AIPersonality
@@ -982,6 +983,41 @@ class StrategicRenderer:
 # Main Game Loop
 # =============================================================================
 
+def _fight_battle(
+    battle_resolver: BattleResolver,
+    game_state: StrategicGameState,
+    attacker: Army,
+    defender: Army,
+    attacker_original_pos: Tuple[int, int],
+    tiles: Dict[Tuple[int, int], Tile],
+    armies: List[Army],
+) -> str:
+    """
+    Résout une bataille (mode tactique fenêtré) et applique les retombées
+    stratégiques. Point de passage unique des trois déclencheurs de bataille
+    (clic joueur, tour IA, bataille différée post-animation).
+
+    Returns:
+        Le message de résultat à afficher sur la carte stratégique.
+    """
+    defender_tile = tiles.get(defender.position.to_tuple())
+    battle_terrain = _get_terrain_type(defender_tile) if defender_tile else TerrainType.PLAINS
+
+    report = battle_resolver.resolve(
+        attacker, defender, battle_terrain,
+        mode=BattleMode.TACTICAL,
+        ai_players=game_state.get_ai_players_for_tactical(),
+    )
+
+    game_state.resolve_battle_aftermath(
+        attacker, defender, report, tiles, armies, attacker_original_pos
+    )
+
+    if report.attacker_won:
+        return f"{report.attacker_name} wins! Losses: {report.attacker_losses} vs {report.defender_losses}"
+    return f"{report.defender_name} wins! Losses: {report.defender_losses} vs {report.attacker_losses}"
+
+
 def run_strategic_game(
     screen: pygame.Surface,
     tiles: Dict[Tuple[int, int], Tile],
@@ -1017,6 +1053,7 @@ def run_strategic_game(
     )
     font = pygame.font.Font(None, 24)
     renderer = StrategicRenderer(screen, font)
+    battle_resolver = BattleResolver(screen, PLAYER_COLORS.as_dict())
 
     # Initialize game state
     game_state = StrategicGameState()
@@ -1079,7 +1116,7 @@ def run_strategic_game(
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 result = _handle_left_click(
                     mouse_pos, tiles, armies, heroes, game_state,
-                    camera_controller.hex_grid, camera, renderer, screen
+                    camera_controller.hex_grid, camera, renderer, battle_resolver
                 )
                 if result:
                     action, data = result
@@ -1105,24 +1142,10 @@ def run_strategic_game(
 
         elif anim_result == "complete" and pending_battle_data:
             attacker, defender, attacker_original_pos = pending_battle_data
-            defender_tile = tiles.get(defender.position.to_tuple())
-            battle_terrain = _get_terrain_type(defender_tile) if defender_tile else TerrainType.PLAINS
-
-            report = run_tactical_battle(
-                screen, attacker, defender,
-                PLAYER_COLORS.as_dict(),
-                strategic_terrain=battle_terrain,
-                ai_players=game_state.get_ai_players_for_tactical()
+            battle_message = _fight_battle(
+                battle_resolver, game_state,
+                attacker, defender, attacker_original_pos, tiles, armies
             )
-
-            game_state.resolve_battle_aftermath(
-                attacker, defender, report, tiles, armies, attacker_original_pos
-            )
-
-            if report.attacker_won:
-                battle_message = f"{report.attacker_name} wins! Losses: {report.attacker_losses} vs {report.defender_losses}"
-            else:
-                battle_message = f"{report.defender_name} wins! Losses: {report.defender_losses} vs {report.attacker_losses}"
             battle_message_timer = 5.0
 
             pending_battle_data = None
@@ -1150,24 +1173,10 @@ def run_strategic_game(
                         pending_battle_data = (attacker, defender, attacker_original_pos)
                     else:
                         # Run battle immediately
-                        defender_tile = tiles.get(defender.position.to_tuple())
-                        battle_terrain = _get_terrain_type(defender_tile) if defender_tile else TerrainType.PLAINS
-
-                        report = run_tactical_battle(
-                            screen, attacker, defender,
-                            PLAYER_COLORS.as_dict(),
-                            strategic_terrain=battle_terrain,
-                            ai_players=game_state.get_ai_players_for_tactical()
+                        battle_message = _fight_battle(
+                            battle_resolver, game_state,
+                            attacker, defender, attacker_original_pos, tiles, armies
                         )
-
-                        game_state.resolve_battle_aftermath(
-                            attacker, defender, report, tiles, armies, attacker_original_pos
-                        )
-
-                        if report.attacker_won:
-                            battle_message = f"{report.attacker_name} wins! Losses: {report.attacker_losses} vs {report.defender_losses}"
-                        else:
-                            battle_message = f"{report.defender_name} wins! Losses: {report.defender_losses} vs {report.attacker_losses}"
                         battle_message_timer = 5.0
 
                         # Check victory
@@ -1228,7 +1237,7 @@ def _handle_left_click(
     hex_grid: HexGrid,
     camera: Camera,
     renderer: StrategicRenderer,
-    screen: pygame.Surface
+    battle_resolver: BattleResolver
 ) -> Optional[Tuple[str, any]]:
     """
     Handle left click events.
@@ -1279,25 +1288,10 @@ def _handle_left_click(
                     return ("pending_battle", (attacker, defender, attacker_original_pos))
 
                 # No animation - run battle immediately
-                defender_tile = tiles.get(defender.position.to_tuple())
-                battle_terrain = _get_terrain_type(defender_tile) if defender_tile else TerrainType.PLAINS
-
-                report = run_tactical_battle(
-                    screen, attacker, defender,
-                    PLAYER_COLORS.as_dict(),
-                    strategic_terrain=battle_terrain,
-                    ai_players=game_state.get_ai_players_for_tactical()
+                msg = _fight_battle(
+                    battle_resolver, game_state,
+                    attacker, defender, attacker_original_pos, tiles, armies
                 )
-
-                game_state.resolve_battle_aftermath(
-                    attacker, defender, report, tiles, armies, attacker_original_pos
-                )
-
-                if report.attacker_won:
-                    msg = f"{report.attacker_name} wins! Losses: {report.attacker_losses} vs {report.defender_losses}"
-                else:
-                    msg = f"{report.defender_name} wins! Losses: {report.defender_losses} vs {report.attacker_losses}"
-
                 return ("battle", (msg, 5.0))
             else:
                 # Normal move (possibly animating)

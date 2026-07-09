@@ -1056,6 +1056,7 @@ def run_tactical_battle(
     defender: Army,
     player_colors: Dict[int, Tuple[int, int, int]],
     strategic_terrain: TerrainType = TerrainType.PLAINS,
+    seed: Optional[int] = None,
     ai_players: Optional[Dict[int, AIPersonality]] = None
 ) -> BattleReport:
     """
@@ -1067,11 +1068,14 @@ def run_tactical_battle(
         defender: The defending army
         player_colors: Color mapping for player IDs
         strategic_terrain: The terrain type from the strategic map
+        seed: Optional battlefield seed (random if omitted)
         ai_players: Optional dict mapping player_id to AIPersonality for AI-controlled players
 
     Returns the battle report when complete.
     """
-    battle = TacticalBattle(attacker, defender, strategic_terrain, ai_players=ai_players)
+    battle = TacticalBattle(
+        attacker, defender, strategic_terrain, seed=seed, ai_players=ai_players
+    )
 
     # État de vue (caméra, rendu) : entièrement hors de TacticalBattle.
     camera = _create_battle_camera(screen.get_width(), screen.get_height())

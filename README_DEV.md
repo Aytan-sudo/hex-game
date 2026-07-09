@@ -36,11 +36,13 @@ military/        # l'actuel game/ militaire, RÉTROGRADÉ, derrière un BattleRe
 | `ai.py` `TacticalAI` | conservé | IA des batailles |
 | `map_generator.py` | conservé + greffe settlements/royaumes | terrain gardé (bon) |
 
-**Point pivot technique** : mettre le combat derrière un **`BattleResolver`** (auto-résolution
-*ou* tactique). Le prérequis — découpler rendu et logique du tactique — est **fait** :
+**Point pivot technique — fait.** Le combat est derrière un **`BattleResolver`**
+(`game/battle_resolver.py`) à deux modes : `AUTO` (résolution headless, les deux camps joués
+par l'IA tactique, sans fenêtre) et `TACTICAL` (bataille interactive). Prérequis rempli :
 `TacticalBattle` est de la logique pure (ni `screen` ni `camera` ; l'état de vue vit dans
-`run_tactical_battle` / `TacticalRenderer`), une bataille se résout donc sans ouvrir de
-fenêtre. Voir la roadmap dans `PROJET.md`.
+`run_tactical_battle` / `TacticalRenderer`). La couche stratégique passe par le resolver
+(`strategic_map._fight_battle`, point de passage unique des trois déclencheurs de bataille).
+La future couche campagne appellera le même resolver. Voir la roadmap dans `PROJET.md`.
 
 Tant qu'un module cible n'est pas construit, **ce guide continue de décrire le code existant
 ci-dessous.** On met à jour au fur et à mesure de la migration.
@@ -68,7 +70,8 @@ hex-game/
 │   ├── ai.py              # AIPlayer (stratégique), TacticalAI (combat)
 │   ├── map_generator.py   # MapGenerator, MapConfig
 │   ├── strategic_map.py   # StrategicGameState, StrategicRenderer
-│   ├── tactical_map.py    # TacticalBattle, TacticalRenderer
+│   ├── battle_resolver.py # BattleResolver (AUTO headless | TACTICAL fenêtré)
+│   ├── tactical_map.py    # TacticalBattle (logique pure), TacticalRenderer
 │   └── main.py            # Point d'entrée, MainMenu
 ```
 
@@ -78,9 +81,14 @@ hex-game/
 main.py → MainMenu.run()
   └── run_strategic_game()
         ├── StrategicGameState (tours, sélection, animations, IA stratégique)
-        └── [bataille] → run_tactical_battle()
-              └── TacticalBattle (combat tour par tour, IA tactique)
+        └── [bataille] → _fight_battle() → BattleResolver.resolve()
+              ├── mode TACTICAL → run_tactical_battle() (fenêtre)
+              │     └── TacticalBattle (combat tour par tour, IA tactique)
+              └── mode AUTO → TacticalBattle pompé en headless (sans rendu)
 ```
+
+Le stratégique joue toujours en `TACTICAL` ; le mode `AUTO` sert aux tests et à la
+future couche campagne (batailles intermédiaires auto-résolues).
 
 ---
 
@@ -226,6 +234,7 @@ Ne pas réintroduire de BFS faits-main.
 | Unité | `units.py` | `main.py` |
 | Héros | `heroes.py` | `main.py` |
 | Combat | `combat.py` | `tactical_map.py` |
+| Résolution de bataille | `battle_resolver.py` | `strategic_map.py`, `tactical_map.py` |
 | IA stratégique | `ai.py` | `strategic_map.py` |
 | IA tactique | `ai.py` | `tactical_map.py` |
 | UI stratégique | `strategic_map.py` | `config.py` |
@@ -277,6 +286,7 @@ Couverture actuelle (invariants, pas de couverture exhaustive) :
 | `test_map_generator.py` | déterminisme par seed (même hors random global) |
 | `test_config_speed.py` | scaling `GameSpeed` des délais |
 | `test_turn_flow.py` | **tour IA borné** (fix `has_acted`), détection fin de tour auto |
+| `test_battle_resolver.py` | auto-résolution headless : terminaison, pertes répercutées, reproductibilité par seed |
 
 Fixture utile (`tests/conftest.py`) : `make_grid` (grille hexagonale d'un terrain
 donné). `TacticalBattle` se construit sans écran (logique découplée de Pygame) ;

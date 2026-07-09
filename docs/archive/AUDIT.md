@@ -69,9 +69,9 @@ case vide/armée alliée). La traversée reste limitée aux cases vides
   (`run_tactical_battle` / `TacticalRenderer`). La logique de bataille se
   construit et se résout sans display Pygame.
 
-### 2.4 `run_strategic_game` (300 lignes) fait trop — ⬜
+### 2.4 `run_strategic_game` (300 lignes) fait trop — 🟡 PARTIEL
 
-Boucle géante mêlant input, animation, IA, déclenchement bataille (3 variantes copiées), victoire, hover, render. À éclater en `InputController`, `BattleOrchestrator`, etc. Les blocs `if report.attacker_won` / `else` sont dupliqués à 3 endroits.
+Boucle géante mêlant input, animation, IA, déclenchement bataille (3 variantes copiées), victoire, hover, render. À éclater en `InputController`, `BattleOrchestrator`, etc. ~~Les blocs `if report.attacker_won` / `else` sont dupliqués à 3 endroits.~~ ✅ Les 3 déclencheurs de bataille passent par `strategic_map._fight_battle` → `BattleResolver`. L'éclatement du reste de la boucle reste à faire.
 
 ### 2.5 Combat : règles incorrectes — ✅ RÉSOLU
 

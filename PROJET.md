@@ -226,9 +226,10 @@ Migration **incrémentale** : le repo reste jouable à chaque phase. Le wargame 
 n'est jamais supprimé — il est encapsulé, puis réutilisé pour les batailles.
 
 - **Phase 0 — Cadrage & doc.** *(en cours)* Figer la vision, homogénéiser la doc.
-- **Phase 1 — Fondations.** Terminer le découplage Pygame *(fait : `TacticalBattle` est de la
-  logique pure, sans `screen` ni `camera`)* et introduire un `BattleResolver` (auto-résolution
-  *ou* tactique) pour rendre le combat appelable sans ouvrir de fenêtre.
+- **Phase 1 — Fondations.** *(fait, 2026-07-09)* Découplage Pygame terminé (`TacticalBattle`
+  est de la logique pure, sans `screen` ni `camera`) et `BattleResolver` introduit
+  (auto-résolution headless *ou* tactique fenêtré) : le combat est appelable sans ouvrir de
+  fenêtre.
 - **Phase 2 — Le personnage & worldgen.** *Concevoir avant de générer* : modèle `Character`
   (composition, couche `vrai`/`connu` §5.1) puis worldgen headless & déterministe (§5.7), par
   paliers : **A** terrain+settlements+royaumes → **B** roster (attributs+portraits+affiliation)
