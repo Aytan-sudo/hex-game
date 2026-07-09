@@ -9,10 +9,12 @@ Deux niveaux :
   la **concentration** ; un **profil** (silhouette) donne les **poids** par trait.
   Résultat : une pyramide « banals / utiles / exceptionnels » (cf. discussion).
 - ``generer_roster`` — l'ensemble. Impose des **quotas** (les compagnons
-  exceptionnels sont *garantis*, pas laissés au hasard), sème l'**Élu** (normal en
-  surface, mais **potentiel magique très haut caché** ; il grandira via la
-  *prophétie des élus*, arc exclusif — moteur narratif Phase 5), les **traîtres**,
-  et désigne la **main de départ**.
+  exceptionnels sont *garantis*, pas laissés au hasard), tire la **main de départ**,
+  puis **désigne l'Élu** parmi elle — **après** génération, sans traitement
+  particulier (ni calibre ni magie imposés) : on garantit ainsi qu'il n'a pas été
+  généré différemment des autres. Sa montée en puissance vient **en jeu**, via la
+  *prophétie des élus* (arc exclusif branché sur le drapeau — Phase 5). Sème enfin
+  les **traîtres** (allégeance cachée, jamais l'Élu).
 
 Hors périmètre (à venir) : **noms** (banques par royaume), **banque de portraits**,
 **placement sur la carte** (dépend du terrain/settlements), et les **arcs de
@@ -26,7 +28,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
 
+from engine.hex_grid import HexCoord
 from engine.rng import SeededRNG
+from game.map_generator import MapConfig, MapGenerator
+from game.terrain import TerrainType
 from world.character import (
     Character,
     HiddenValue,
@@ -35,6 +40,15 @@ from world.character import (
     Trait,
     nouveau_character,
 )
+from world.names import nom_lieu, nom_personne, nom_royaume
+from world.settlement import (
+    FORCE_PAR_TAILLE,
+    ConditionRalliement,
+    Royaume,
+    Settlement,
+    TailleSettlement,
+)
+from world.world_state import WorldState
 
 
 # =============================================================================
@@ -79,11 +93,16 @@ class WorldGenConfig:
     starting_hand: int = 5           # main de départ du joueur (Élu inclus)
     exceptional_quota: int = 5       # compagnons exceptionnels GARANTIS
 
+    # Carte & géographie (palier A).
+    map_width: int = 60
+    map_height: int = 60
+    settlements_total: int = 28      # lieux peuplés répartis sur la carte
+    kingdom_count: int = 5           # royaumes (grappes de settlements)
+    horloge_du_destin: int = 60      # tours avant le déferlement (§1, §6)
+
     # Loi de puissance du calibre : C = U^p (p élevé = monde plus élitiste).
     calibre_exponent: float = 2.5
     exceptional_calibre_min: float = 0.85  # bande « exceptionnel » (quota)
-    elu_calibre_min: float = 0.25          # l'Élu paraît quelconque en surface
-    elu_calibre_max: float = 0.5
 
     # Budget de points réparti sur les 9 traits, et concentration, selon calibre.
     budget_min: int = 185
@@ -92,12 +111,11 @@ class WorldGenConfig:
     concentration_max: float = 0.45
     trait_jitter: float = 5.0
 
-    # Magie (hors budget) : incidence, force, potentiel forcé de l'Élu.
+    # Magie (hors budget) : incidence et force du potentiel.
     magic_incidence: float = 0.10
     magic_incidence_mystique: float = 0.55
     potential_min: int = 25
     potential_max: int = 100
-    elu_potential_min: int = 88
 
     # Faits collectifs.
     traitor_fraction: float = 0.15
@@ -224,19 +242,18 @@ def generer_roster(rng: SeededRNG, config: WorldGenConfig) -> Roster:
         )
         personnages.append(perso)
 
-    # L'Élu : un personnage d'apparence NORMALE (hors quota exceptionnel), regénéré
-    # avec un calibre médian, puis doté d'un potentiel magique très haut CACHÉ.
+    # Main de départ : `starting_hand` personnages tirés au sort — générés
+    # EXACTEMENT comme le reste du roster (aucun traitement particulier).
+    hand_rng = root.derive("main")
+    main_depart = hand_rng.sample([p.id for p in personnages], config.starting_hand)
+
+    # L'Élu : désigné APRÈS génération, parmi la main de départ. Il ne reçoit que
+    # le drapeau — ni calibre, ni magie imposés : on est ainsi sûr qu'il n'a pas
+    # été généré différemment des autres. Sa montée en puissance vient EN JEU, via
+    # la prophétie des élus (arc exclusif branché sur ce drapeau — Phase 5).
     elu_rng = root.derive("elu")
-    normaux = [p.id for p in personnages if p.id >= config.exceptional_quota]
-    elu_id = elu_rng.choice(normaux)
-    elu_calibre = _lerp(config.elu_calibre_min, config.elu_calibre_max, elu_rng.random())
-    elu = generer_character(root.derive(f"char:{elu_id}:elu"), config, id=elu_id, calibre=elu_calibre)
-    magie_elu = elu_rng.choice(list(Magie))
-    elu.secrets.potentiels[magie_elu] = HiddenValue(
-        true_value=elu_rng.randint(config.elu_potential_min, 100)
-    )
-    elu.secrets.est_elu = True
-    personnages[elu_id] = elu
+    elu_id = elu_rng.choice(main_depart)
+    personnages[elu_id].secrets.est_elu = True
 
     # Traîtres : une fraction du roster (jamais l'Élu), allégeance cachée.
     traitor_rng = root.derive("traitres")
@@ -245,9 +262,157 @@ def generer_roster(rng: SeededRNG, config: WorldGenConfig) -> Roster:
     for traitre_id in traitor_rng.sample(candidats, min(n_traitres, len(candidats))):
         personnages[traitre_id].secrets.allegiance.du_mal = True
 
-    # Main de départ : l'Élu + (starting_hand - 1) autres tirés au sort.
-    hand_rng = root.derive("main")
-    autres = [p.id for p in personnages if p.id != elu_id]
-    main_depart = [elu_id] + hand_rng.sample(autres, config.starting_hand - 1)
-
     return Roster(personnages=personnages, main_depart=main_depart, elu_id=elu_id)
+
+
+# =============================================================================
+# GÉOGRAPHIE — settlements & royaumes greffés sur le terrain (palier A)
+# =============================================================================
+
+_TERRAINS_INCONSTRUCTIBLES = (TerrainType.WATER, TerrainType.MOUNTAIN)
+
+
+def _distance(a, b) -> int:
+    return HexCoord(*a).distance_to(HexCoord(*b))
+
+
+def _placer_settlements(rng, tiles, nombre, min_dist) -> List[tuple]:
+    """Échantillonne des positions terrestres espacées d'au moins ``min_dist``."""
+    terres = [
+        pos for pos, tile in tiles.items()
+        if tile.base_terrain not in _TERRAINS_INCONSTRUCTIBLES
+    ]
+    rng.shuffle(terres)
+    choisis: List[tuple] = []
+    for pos in terres:
+        if all(_distance(pos, c) >= min_dist for c in choisis):
+            choisis.append(pos)
+            if len(choisis) >= nombre:
+                break
+    return choisis
+
+
+def _choisir_capitales(rng, positions, k) -> List[tuple]:
+    """k capitales bien réparties (première au hasard, puis point le plus loin)."""
+    caps = [rng.choice(positions)]
+    while len(caps) < k and len(caps) < len(positions):
+        loin = max(positions, key=lambda p: min(_distance(p, c) for c in caps))
+        if loin in caps:
+            break
+        caps.append(loin)
+    return caps
+
+
+def _generer_geographie(rng, tiles, config):
+    """Crée settlements + royaumes à partir du terrain. Retourne (settlements, royaumes)."""
+    place_rng = rng.derive("settlements")
+    # Espacement dérivé de la densité voulue.
+    aire = config.map_width * config.map_height
+    min_dist = max(3, int((aire / max(1, config.settlements_total)) ** 0.5 * 0.55))
+    positions = _placer_settlements(place_rng, tiles, config.settlements_total, min_dist)
+
+    kingdom_rng = rng.derive("royaumes")
+    k = min(config.kingdom_count, len(positions))
+    capitales = _choisir_capitales(kingdom_rng, positions, k)
+    cap_index = {pos: i for i, pos in enumerate(capitales)}
+
+    name_rng = rng.derive("noms_lieux")
+
+    # Un royaume par capitale.
+    royaumes = [
+        Royaume(
+            id=i,
+            nom=nom_royaume(name_rng),
+            capitale_id=-1,  # fixé une fois le settlement de capitale créé
+            disposition=kingdom_rng.randint(0, 40),  # semé bas : à convaincre
+            conditions=[
+                ConditionRalliement(
+                    domaine_requis=kingdom_rng.choice(
+                        ["guerrier", "diplomate", "mage", "royaute"]
+                    ),
+                    seuil=kingdom_rng.randint(40, 85),
+                )
+            ],
+        )
+        for i in range(k)
+    ]
+
+    # Chaque settlement rejoint la capitale la plus proche.
+    settlements: List[Settlement] = []
+    for sid, pos in enumerate(positions):
+        royaume_id = min(range(k), key=lambda i: _distance(pos, capitales[i]))
+        if pos in cap_index:
+            taille = TailleSettlement.CAPITALE
+        else:
+            taille = name_rng.choices(
+                [TailleSettlement.BOURGADE, TailleSettlement.VILLAGE, TailleSettlement.CAMPEMENT],
+                weights=[0.15, 0.35, 0.50],
+                k=1,
+            )[0]
+        settlement = Settlement(
+            id=sid,
+            nom=nom_lieu(name_rng),
+            position=pos,
+            taille=taille,
+            royaume_id=royaume_id,
+            force_armee=FORCE_PAR_TAILLE[taille],
+        )
+        settlements.append(settlement)
+        royaumes[royaume_id].settlement_ids.append(sid)
+        if taille is TailleSettlement.CAPITALE:
+            royaumes[royaume_id].capitale_id = sid
+
+    return settlements, royaumes
+
+
+# =============================================================================
+# ORCHESTRATION — un monde complet (palier A + B + C assemblés)
+# =============================================================================
+
+def generer_monde(rng: SeededRNG, config: Optional[WorldGenConfig] = None) -> WorldState:
+    """
+    Produit un ``WorldState`` complet, headless et déterministe : terrain →
+    settlements → royaumes → roster (nommé) → placement de la main de départ.
+
+    C'est la sortie du worldgen (PROJET §5.7). Le placement sur la carte et les
+    noms se posent ici ; le moteur de jeu (Phase 3+) fait ensuite évoluer l'état.
+    """
+    config = config or WorldGenConfig()
+
+    # Terrain (générateur existant, headless).
+    terrain_seed = rng.derive("terrain").seed
+    tiles = MapGenerator(
+        MapConfig(width=config.map_width, height=config.map_height, seed=terrain_seed)
+    ).generate()
+
+    # Géographie puis roster.
+    settlements, royaumes = _generer_geographie(rng, tiles, config)
+    roster = generer_roster(rng, config)
+
+    # Noms des personnages (déterministes, un flux dédié).
+    name_rng = rng.derive("noms_persos")
+    for perso in roster.personnages:
+        perso.nom = nom_personne(name_rng, perso.sexe)
+
+    # Placement : la main de départ autour de la capitale du royaume de départ ;
+    # les autres « chez eux », à un settlement (lieu de recrutement).
+    place_rng = rng.derive("placement")
+    depart = settlements[royaumes[0].capitale_id]
+    for perso_id in roster.main_depart:
+        perso = roster.personnages[perso_id]
+        perso.affiliation = 0                       # le joueur contrôle sa main
+        perso.location = depart.position
+    autres = [p for p in roster.personnages if p.id not in roster.main_depart]
+    for perso in autres:
+        perso.location = place_rng.choice(settlements).position
+
+    return WorldState(
+        seed=rng.seed,
+        tiles=tiles,
+        personnages=roster.personnages,
+        settlements=settlements,
+        royaumes=royaumes,
+        main_depart=roster.main_depart,
+        elu_id=roster.elu_id,
+        horloge_du_destin=config.horloge_du_destin,
+    )

@@ -77,7 +77,10 @@ hex-game/
 │
 └── world/              # Couche campagne (Phase 2+, headless, sans Pygame)
     ├── character.py       # Character + couche vrai/connu (HiddenValue, label, Sexe)
-    └── worldgen.py        # Génération procédurale : generer_character / generer_roster
+    ├── settlement.py      # Settlement, Royaume, TailleSettlement, ConditionRalliement
+    ├── names.py           # Noms semés (personnes/lieux/royaumes)
+    ├── world_state.py     # WorldState (sortie du worldgen, sérialisable)
+    └── worldgen.py        # generer_character / generer_roster / generer_monde
 ```
 
 ## Flux d'exécution
@@ -173,12 +176,19 @@ def generer_roster(rng, config) -> Roster   # personnages + main_depart + elu_id
 - **Modèle hybride** : un **calibre** tiré d'une **loi de puissance** (`C = U^p`) fixe le
   **budget** de points et la **concentration** ; le **profil** donne les **poids** par trait.
   → pyramide *banals / utiles / exceptionnels* (une signature d'autant plus haute que le calibre).
-- **Roster** : **quota** de compagnons exceptionnels **garanti** (pas laissé au hasard) ; l'**Élu**
-  est **quelconque en surface** mais porte un **potentiel magique très haut caché** (il grandira
-  via la *prophétie des élus*, arc exclusif — moteur narratif Phase 5) ; **traîtres** semés
-  (allégeance cachée, jamais l'Élu) ; **main de départ** (Élu inclus).
-- **Hors périmètre** (à venir) : **noms** (banques par royaume), **banque de portraits**,
-  **placement sur la carte** (dépend du terrain/settlements, palier A), arcs de prophétie.
+- **Roster** : **quota** de compagnons exceptionnels **garanti** (pas laissé au hasard) ; la
+  **main de départ** est tirée, puis l'**Élu** est **désigné parmi elle *après* génération** — ni
+  calibre ni magie imposés, donc **généré comme tout le monde** (indémasquable au worldgen) ; il ne
+  reçoit que le **drapeau**, sa puissance venant **en jeu** via la *prophétie des élus* (arc
+  exclusif, Phase 5) ; **traîtres** semés (allégeance cachée, jamais l'Élu).
+- **`generer_monde(rng, config)` → `WorldState`** : assemble tout le palier A + B + C. Terrain
+  (via `game.map_generator`, headless) → **settlements** placés sur terre ferme, espacés, taillés
+  (campement→capitale) → **royaumes** = grappes autour d'une capitale (point-le-plus-loin +
+  plus-proche-voisin), avec disposition + conditions de ralliement → **roster** nommé → **placement**
+  (main de départ rassemblée à la capitale de départ, `affiliation=0` ; les autres chez un
+  settlement). Déterministe par seed, **sérialisable**, sans Pygame.
+- **Hors périmètre** (à venir) : **banque de portraits** réelle, cultures/langues de noms par
+  royaume, arcs de prophétie, résolution de la **diplomatie** (montée de disposition — Phase 4).
 
 ### IA (`game/ai.py`)
 
@@ -347,6 +357,7 @@ Couverture actuelle (invariants, pas de couverture exhaustive) :
 | `test_character.py` | couche vrai/connu : invariant (l'intervalle contient la vraie valeur), resserrement, divineresse, label sans chiffre |
 | `test_rng.py` | `SeededRNG` : déterminisme par seed, sous-flux dérivés (reproductibles + indépendants), isolation du random global |
 | `test_worldgen.py` | générateur : déterminisme, pyramide + quota garanti, Élu unique (quelconque en surface, potentiel caché), traîtres, biais de profil |
+| `test_world.py` | `generer_monde` : déterminisme, settlements hiérarchisés sur terre ferme, royaumes (partition + capitale unique), placement de la main de départ |
 
 Fixture utile (`tests/conftest.py`) : `make_grid` (grille hexagonale d'un terrain
 donné). `TacticalBattle` se construit sans écran (logique découplée de Pygame) ;

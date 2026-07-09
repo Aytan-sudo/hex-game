@@ -73,24 +73,36 @@ def test_all_characteristics_start_hidden():
 
 # --- L'Élu -----------------------------------------------------------------
 
-def test_elu_is_ordinary_on_the_surface_but_potent_in_secret():
+def test_elu_is_designated_after_generation_not_generated_differently():
+    """
+    L'Élu est un membre de la main de départ, désigné APRÈS génération : il n'a ni
+    calibre ni magie imposés. On le vérifie en montrant que sur de nombreux seeds
+    il suit la distribution générale (parfois quelconque, parfois exceptionnel) et
+    que, comme la masse, il n'a le plus souvent aucune magie.
+    """
     cfg = WorldGenConfig(roster_size=40)
-    for seed in range(20):
+    elu_max = []
+    elu_sans_magie = 0
+    for seed in range(40):
         r = generer_roster(SeededRNG(seed), cfg)
         elu = r.personnages[r.elu_id]
-        # Ne ressort PAS comme un exceptionnel (mystère préservé).
-        assert _max_trait(elu) < 80
-        # Possède au moins une magie à très fort potentiel (caché).
-        assert elu.secrets.potentiels
-        assert max(hv.true_value for hv in elu.secrets.potentiels.values()) >= cfg.elu_potential_min
-        # Son potentiel reste caché comme le reste.
-        assert all(hv.knowledge_level == 0 for hv in elu.secrets.potentiels.values())
+        assert elu.id in r.main_depart            # l'Élu est dans la main de départ
+        elu_max.append(_max_trait(elu))
+        if not elu.secrets.potentiels:
+            elu_sans_magie += 1
+    # Suit la distribution générale : ni bridé bas, ni forcé exceptionnel.
+    assert min(elu_max) < 60
+    assert max(elu_max) >= 78
+    # La magie n'est PAS imposée : la plupart des Élus n'ont aucun potentiel.
+    assert elu_sans_magie > len(elu_max) // 2
 
 
 def test_elu_can_be_either_sex():
     cfg = WorldGenConfig(roster_size=40)
-    sexes = {generer_roster(SeededRNG(s), cfg).personnages[
-        generer_roster(SeededRNG(s), cfg).elu_id].sexe for s in range(30)}
+    sexes = set()
+    for s in range(30):
+        r = generer_roster(SeededRNG(s), cfg)
+        sexes.add(r.personnages[r.elu_id].sexe)
     assert sexes == {Sexe.FEMININ, Sexe.MASCULIN}
 
 
