@@ -8,7 +8,6 @@ Handles individual unit combat on a smaller battlefield.
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
-import random
 
 import pygame
 
@@ -19,6 +18,7 @@ from engine.combat import CombatSystem, CombatResult
 from engine.camera import Camera
 from engine.input_handler import CameraController
 from engine.pathfinding import calculate_valid_moves, calculate_path_cost
+from engine.rng import SeededRNG
 from game.terrain import TerrainType, get_terrain_config
 from game.map_generator import MapConfig, MapGenerator
 from game.config import UI, INPUT, BATTLE, PLAYER_COLORS, AI, PROGRESSION
@@ -228,7 +228,11 @@ class TacticalBattle:
         self.attacker = attacker
         self.defender = defender
         self.strategic_terrain = strategic_terrain
-        self.seed = seed or random.randint(0, 999999)
+        # RNG semé unique de la bataille, propagé (déploiement, combat, IA) : même
+        # seed ⇒ même bataille, sans dépendre d'un état random global partagé.
+        # `SeededRNG(seed)` gère seed=None (tiré) comme seed=0 (valide).
+        self.rng = SeededRNG(seed)
+        self.seed = self.rng.seed
 
         # Generate tactical map
         self.tiles = _generate_tactical_map(
@@ -247,8 +251,8 @@ class TacticalBattle:
         self.defender_hero_unit: Optional[TacticalUnit] = None
         self._deploy_units()
 
-        # Combat system
-        self.combat_system = CombatSystem(random_factor=0.2)
+        # Combat system (sous-flux dédié : indépendant du déploiement et de l'IA)
+        self.combat_system = CombatSystem(random_factor=0.2, rng=self.rng.derive("combat"))
 
         # Turn management
         self.current_player_id = attacker.player_id
@@ -268,7 +272,9 @@ class TacticalBattle:
         self.ai_players: Dict[int, TacticalAI] = {}
         if ai_players:
             for player_id, personality in ai_players.items():
-                self.ai_players[player_id] = TacticalAI(player_id, personality)
+                self.ai_players[player_id] = TacticalAI(
+                    player_id, personality, rng=self.rng.derive(f"ai:{player_id}")
+                )
 
         # AI turn state
         self._ai_action_timer: int = 0
@@ -288,9 +294,9 @@ class TacticalBattle:
             if q > 2 * BATTLE.map_width // 3 and tile.is_passable
         ]
 
-        random.seed(self.seed)
-        random.shuffle(left_tiles)
-        random.shuffle(right_tiles)
+        deploy_rng = self.rng.derive("deploy")
+        deploy_rng.shuffle(left_tiles)
+        deploy_rng.shuffle(right_tiles)
 
         self._deploy_army_units(self.attacker, left_tiles, self.attacker_units)
         self._deploy_army_units(self.defender, right_tiles, self.defender_units)

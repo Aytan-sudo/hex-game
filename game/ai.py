@@ -9,10 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
-import random
 
 from engine.hex_grid import HexCoord
 from engine.pathfinding import find_path, calculate_path_cost, calculate_valid_moves
+from engine.rng import SeededRNG
 
 if TYPE_CHECKING:
     from engine.tile import Tile
@@ -96,10 +96,16 @@ class AIPlayer:
     belonging to the AI player.
     """
 
-    def __init__(self, player_id: int, personality: AIPersonality = AIPersonality.AGGRESSIVE):
+    def __init__(
+        self,
+        player_id: int,
+        personality: AIPersonality = AIPersonality.AGGRESSIVE,
+        rng: Optional[SeededRNG] = None,
+    ):
         self.player_id = player_id
         self.personality = personality
         self.config = AI_CONFIGS[personality]
+        self.rng = rng if rng is not None else SeededRNG()
 
     def plan_turn(
         self,
@@ -242,7 +248,7 @@ class AIPlayer:
         score += cfg.movement_weight * move_cost * 2
 
         # Add small random factor for variety
-        score += random.uniform(0, 5)
+        score += self.rng.uniform(0, 5)
 
         return score
 
@@ -307,10 +313,16 @@ class TacticalAI:
     decisions about unit movement and attacks.
     """
 
-    def __init__(self, player_id: int, personality: AIPersonality = AIPersonality.AGGRESSIVE):
+    def __init__(
+        self,
+        player_id: int,
+        personality: AIPersonality = AIPersonality.AGGRESSIVE,
+        rng: Optional[SeededRNG] = None,
+    ):
         self.player_id = player_id
         self.personality = personality
         self.config = AI_CONFIGS[personality]
+        self.rng = rng if rng is not None else SeededRNG()
 
     def play_turn(
         self,
@@ -482,7 +494,7 @@ class TacticalAI:
                 score += cfg.defense_weight * min(10, min_dist) * 5
 
         # Add small randomness
-        score += random.uniform(0, 3)
+        score += self.rng.uniform(0, 3)
 
         return score
 

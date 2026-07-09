@@ -234,10 +234,10 @@ connaissance vierge) → **faits secrets** (Élu parmi les persos initiaux, tra�
 main du joueur → ancres d'arcs (lier l'Élu à 1-2 prophéties). Le **reste (missions, incursions)
 est runtime.**
 
-Principes : **un seul RNG semé propagé** (pas de `random` global — dette héritée à corriger) ;
-**concevoir le modèle `Character` avant de le générer** ; boutons d'échelle exposés dans un
-`WorldGenConfig`. Conséquence rejouabilité : **même seed = même monde, mais l'histoire diverge
-selon les choix.**
+Principes : **un seul RNG semé propagé** ✅ *(fait : `engine.rng.SeededRNG` ; plus de `random`
+global, sous-flux dérivés par `derive("étiquette")`)* ; **concevoir le modèle `Character` avant de
+le générer** ✅ *(`world/character.py`)* ; boutons d'échelle exposés dans un `WorldGenConfig`.
+Conséquence rejouabilité : **même seed = même monde, mais l'histoire diverge selon les choix.**
 
 ---
 

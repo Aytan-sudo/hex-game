@@ -60,6 +60,7 @@ hex-game/
 │   ├── camera.py          # Zoom multi-niveaux + center_on (suivi d'unité)
 │   ├── combat.py          # CombatSystem (dégâts, contre-attaque)
 │   ├── pathfinding.py     # BFS (valid_moves), Dijkstra (find_path)
+│   ├── rng.py             # SeededRNG (RNG semé unique, propagé, sous-flux dérivés)
 │   └── input_handler.py   # CameraController (drag, zoom)
 │
 ├── game/               # Implémentation du jeu
@@ -280,6 +281,9 @@ Ne pas réintroduire de BFS faits-main.
 3. **Unités sur tiles** : `tile.unit` = `Army` ou `None` (Hero indépendants pas sur tiles)
 4. **Animation** : bloquer inputs si `game_state.current_animation is not None`
 5. **Import circulaire** : `tile.py` importe `terrain.py` via lazy import
+6. **Aléa** : **ne pas** utiliser le module `random` global (ni `random.seed`). Injecter/posséder
+   un `engine.rng.SeededRNG` et le **propager** ; pour des sous-systèmes indépendants, `derive("étiquette")`.
+   La bataille (`TacticalBattle`) sème un RNG unique et le dérive en `deploy` / `combat` / `ai:<id>`.
 
 ---
 
@@ -317,6 +321,7 @@ Couverture actuelle (invariants, pas de couverture exhaustive) :
 | `test_turn_flow.py` | **tour IA borné** (fix `has_acted`), détection fin de tour auto |
 | `test_battle_resolver.py` | auto-résolution headless : terminaison, pertes répercutées, reproductibilité par seed |
 | `test_character.py` | couche vrai/connu : invariant (l'intervalle contient la vraie valeur), resserrement, divineresse, label sans chiffre |
+| `test_rng.py` | `SeededRNG` : déterminisme par seed, sous-flux dérivés (reproductibles + indépendants), isolation du random global |
 
 Fixture utile (`tests/conftest.py`) : `make_grid` (grille hexagonale d'un terrain
 donné). `TacticalBattle` se construit sans écran (logique découplée de Pygame) ;

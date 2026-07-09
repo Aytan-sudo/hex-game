@@ -7,10 +7,10 @@ Handles combat resolution between units and armies.
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
-import random
 
 from .unit import Unit, Army, Hero
 from .tile import Tile
+from .rng import SeededRNG
 
 
 @dataclass
@@ -41,15 +41,18 @@ class CombatSystem:
     Uses a simple attack vs defense system with randomness.
     """
 
-    def __init__(self, random_factor: float = 0.2):
+    def __init__(self, random_factor: float = 0.2, rng: Optional[SeededRNG] = None):
         """
         Initialize combat system.
 
         Args:
             random_factor: Amount of randomness in combat (0.0 to 1.0)
                           0.0 = deterministic, 1.0 = highly random
+            rng: RNG semé propagé. Fourni par l'appelant (ex. une bataille) pour
+                 rendre l'issue reproductible ; sinon, flux jetable non semé.
         """
         self.random_factor = random_factor
+        self.rng = rng if rng is not None else SeededRNG()
 
     def can_attack(
         self,
@@ -158,7 +161,7 @@ class CombatSystem:
         # Apply randomness
         if self.random_factor > 0:
             variance = int(base_damage * self.random_factor)
-            base_damage += random.randint(-variance, variance)
+            base_damage += self.rng.randint(-variance, variance)
 
         return max(1, base_damage)  # Minimum 1 damage
 

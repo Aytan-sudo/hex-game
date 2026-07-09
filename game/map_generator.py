@@ -9,13 +9,13 @@ Uses a layered approach:
 5. Infrastructure (cities, roads, bridges) as overlays
 """
 
-import random
 import math
 from typing import Optional
 from dataclasses import dataclass
 
 from engine.hex_grid import HexCoord
 from engine.tile import Tile
+from engine.rng import SeededRNG
 from game.terrain import TerrainType, OverlayType
 
 
@@ -65,10 +65,11 @@ class SimplexNoise:
 
     def __init__(self, seed: int = 0):
         self.seed = seed
-        random.seed(seed)
-        # Permutation table
+        # Flux dédié (état isolé) : la table de permutation ne dépend plus du
+        # module random global.
+        noise_rng = SeededRNG(seed)
         self.perm = list(range(256))
-        random.shuffle(self.perm)
+        noise_rng.shuffle(self.perm)
         self.perm = self.perm + self.perm  # Double it for overflow
 
     def _grad(self, hash_val: int, x: float, y: float) -> float:
@@ -130,8 +131,10 @@ class MapGenerator:
 
     def __init__(self, config: MapConfig):
         self.config = config
-        self.seed = config.seed if config.seed is not None else random.randint(0, 999999)
+        self.seed = config.seed if config.seed is not None else SeededRNG().seed
         self.noise = SimplexNoise(self.seed)
+        # RNG semé propre au générateur (ré-amorcé au début de generate()).
+        self.rng = SeededRNG(self.seed)
         self.tiles: dict[tuple[int, int], Tile] = {}
 
         # Track special positions
@@ -148,7 +151,9 @@ class MapGenerator:
         Returns:
             Dictionary mapping (q, r) to Tile objects
         """
-        random.seed(self.seed)
+        # Ré-amorçage local (et non plus du random global) : deux appels de même
+        # seed produisent la même carte, quel que soit l'état ailleurs.
+        self.rng = SeededRNG(self.seed)
 
         # Layer 1: Base terrain (plains, hills, and forests)
         self._generate_base_terrain()
@@ -310,7 +315,7 @@ class MapGenerator:
         # If we didn't find enough, add random ones
         all_coords = list(self.tiles.keys())
         while len(seeds) < count and all_coords:
-            coord = random.choice(all_coords)
+            coord = self.rng.choice(all_coords)
             all_coords.remove(coord)
 
             too_close = False
@@ -334,7 +339,7 @@ class MapGenerator:
             # Pick from frontier with preference for closer to seed
             current = frontier.pop(0)
             neighbors = HexCoord(*current).neighbors()
-            random.shuffle(neighbors)
+            self.rng.shuffle(neighbors)
 
             for neighbor in neighbors:
                 coord = neighbor.to_tuple()
@@ -349,7 +354,7 @@ class MapGenerator:
                 # Higher chance to expand if we haven't reached target
                 expand_chance = 0.7 if len(cluster) < target_size * 0.8 else 0.3
 
-                if random.random() < expand_chance:
+                if self.rng.random() < expand_chance:
                     cluster.add(coord)
                     frontier.append(coord)
 
@@ -375,12 +380,12 @@ class MapGenerator:
             # Alternate starting edge
             if river_idx % 2 == 0:
                 # Start from top
-                start_col = random.randint(self.config.width // 6, 5 * self.config.width // 6)
+                start_col = self.rng.randint(self.config.width // 6, 5 * self.config.width // 6)
                 start_row = 0
             else:
                 # Start from side
-                start_col = 0 if random.random() < 0.5 else self.config.width - 1
-                start_row = random.randint(self.config.height // 6, 5 * self.config.height // 6)
+                start_col = 0 if self.rng.random() < 0.5 else self.config.width - 1
+                start_row = self.rng.randint(self.config.height // 6, 5 * self.config.height // 6)
 
             self._generate_single_river(start_col, start_row, river_idx)
 
@@ -421,7 +426,7 @@ class MapGenerator:
                 base_width += int(width_range * min(1.0, (progress - 0.3) / 0.5))
 
             # Add some width variation
-            current_width = base_width + random.randint(-1, 1)
+            current_width = base_width + self.rng.randint(-1, 1)
             current_width = max(self.config.river_min_width, min(self.config.river_max_width, current_width))
 
             # Store width info for later
@@ -433,7 +438,7 @@ class MapGenerator:
                 current_row += 1
 
                 # Meander
-                direction += random.choice([-1, -1, 0, 0, 0, 0, 1, 1])
+                direction += self.rng.choice([-1, -1, 0, 0, 0, 0, 1, 1])
                 direction = max(-3, min(3, direction))
 
                 if abs(direction) >= 2:
@@ -447,7 +452,7 @@ class MapGenerator:
                     current_col -= 1
 
                 # Meander
-                direction += random.choice([-1, 0, 0, 0, 0, 1])
+                direction += self.rng.choice([-1, 0, 0, 0, 0, 1])
                 direction = max(-2, min(2, direction))
 
                 if abs(direction) >= 2:
@@ -513,8 +518,8 @@ class MapGenerator:
             best_coord = None
 
             for _ in range(attempts):
-                row = random.randint(self.config.height // 4, 3 * self.config.height // 4)
-                col = random.randint(self.config.width // 4, 3 * self.config.width // 4)
+                row = self.rng.randint(self.config.height // 4, 3 * self.config.height // 4)
+                col = self.rng.randint(self.config.width // 4, 3 * self.config.width // 4)
                 q = col - (row // 2)
                 coord = (q, row)
 
@@ -534,7 +539,7 @@ class MapGenerator:
                     break
 
             if best_coord:
-                self._create_lake(best_coord, random.randint(3, 8))
+                self._create_lake(best_coord, self.rng.randint(3, 8))
 
     def _create_lake(self, center: tuple[int, int], size: int):
         """Create a lake around a center point."""
@@ -544,13 +549,13 @@ class MapGenerator:
         while len(lake_tiles) < size and frontier:
             current = frontier.pop(0)
             neighbors = HexCoord(*current).neighbors()
-            random.shuffle(neighbors)
+            self.rng.shuffle(neighbors)
 
             for neighbor in neighbors:
                 coord = neighbor.to_tuple()
                 if coord in self.tiles and coord not in lake_tiles:
                     if coord not in self.water_tiles and coord not in self.mountain_tiles:
-                        if random.random() < 0.6:
+                        if self.rng.random() < 0.6:
                             lake_tiles.add(coord)
                             frontier.append(coord)
 
@@ -571,7 +576,7 @@ class MapGenerator:
                         swamp_candidates.add(coord)
 
         for coord in swamp_candidates:
-            if random.random() < 0.35:
+            if self.rng.random() < 0.35:
                 self.tiles[coord] = Tile(
                     position=HexCoord(*coord),
                     base_terrain=TerrainType.SWAMP
@@ -595,8 +600,8 @@ class MapGenerator:
 
             attempts = 100
             for _ in range(attempts):
-                row = random.randint(5, self.config.height - 5)
-                col = random.randint(5, self.config.width - 5)
+                row = self.rng.randint(5, self.config.height - 5)
+                col = self.rng.randint(5, self.config.width - 5)
                 q = col - (row // 2)
                 coord = (q, row)
 
@@ -718,8 +723,8 @@ class MapGenerator:
             if placed >= ruins_count:
                 break
 
-            row = random.randint(3, self.config.height - 3)
-            col = random.randint(3, self.config.width - 3)
+            row = self.rng.randint(3, self.config.height - 3)
+            col = self.rng.randint(3, self.config.width - 3)
             q = col - (row // 2)
             coord = (q, row)
 

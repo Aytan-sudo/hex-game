@@ -16,6 +16,7 @@
 | Reco 5 | Gain d'XP héros post-bataille | ✅ Branché (`tactical_map._resolve_hero_outcomes`) |
 | §2.2 | BFS de mouvement dupliqué (×4 → reste ×3 après suppression du mort) | ✅ Centralisé sur `engine.pathfinding` |
 | §2.3 | Couplage logique ↔ Pygame | ✅ Résolu (horloge dt-driven, puis `screen`/`camera` sortis de `TacticalBattle`) |
+| §2.11 | `random` global reseedé partout (repro fragile) | ✅ Résolu (`engine.rng.SeededRNG` propagé) |
 | §2.6 | `attacker_terrain_bonus` ambigu | ⬜ À clarifier |
 | §2.8 | XP/level-up héros décoratif | ✅ Désormais effectif (cf. Reco 5) |
 | Reco 12 | Absence de suite de tests | ✅ Amorcée (`tests/`, `uv run pytest`) |
@@ -100,7 +101,10 @@ Agrège `total_hp`, etc. Au tactique chaque `ArmyUnit` est éclatée en `count` 
 ### 2.11 Détails — ⬜
 
 - Pas de tests (le `README_DEV.md` propose seulement des `python -c "from X import Y"`).
-- `random.seed(self.seed)` réappelé partout → l'ordre des `random.shuffle` ailleurs influe sur la repro.
+- ~~`random.seed(self.seed)` réappelé partout → l'ordre des `random.shuffle` ailleurs influe sur
+  la repro.~~ ✅ **Résolu** : plus aucun usage du module `random` global. Chaque sous-système
+  possède un `engine.rng.SeededRNG` propagé (sous-flux dérivés indépendants). Repro robuste
+  vérifiée par `tests/test_rng.py`.
 - `valid_attacks` recalculé en O(range²) en plus de la boucle voisins.
 - `calculate_path_cost` (Dijkstra) appelé à chaque clic puis re-appelé pour exécuter le move : redondant.
 - `AIPlayer._score_move` mesure la force par `total_unit_count` → 10 lanciers = 10, 3 mages = 3 alors que les mages sont 4× plus forts. L'IA juge mal les armées hétérogènes.
