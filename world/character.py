@@ -233,6 +233,7 @@ class Character:
     sexe: Sexe = Sexe.MASCULIN
     affiliation: Optional[int] = None  # faction qui le contrôle ; None = indépendant
     location: Optional[object] = None  # HexCoord | ref. settlement (durci en Phase 4)
+    pa_restants: int = 0               # PA du tour courant (distribués par world/turn.py)
     # 3. Grand livre + positions occupées
     grand_livre: GrandLivre = field(default_factory=GrandLivre)
     positions: List[Position] = field(default_factory=list)

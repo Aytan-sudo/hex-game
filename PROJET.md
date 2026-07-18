@@ -280,8 +280,12 @@ n'est jamais supprimé — il est encapsulé, puis réutilisé pour les bataille
   traîtres, main du joueur), **placement** sur la carte et **noms** (`world/names.py`). Sortie :
   `WorldState` (`world/world_state.py`), pure/headless/déterministe. (**D** arcs/prophéties attend
   la Phase 5.) Restent en backlog : banque de **portraits** réelle, cultures de noms par royaume.
-- **Phase 3 — Boucle d'actions.** Remplacer « sélectionne armée → bouge » par « sélectionne
-  perso → points d'action » (déplacer / recruter / convaincre…).
+- **Phase 3 — Boucle d'actions.** *(en cours — logique pure faite, 2026-07-18)* Remplacer
+  « sélectionne armée → bouge » par « sélectionne perso → points d'action » (déplacer /
+  recruter / convaincre…). Fait : **formule des PA** (`PA = 4 + Vigueur // 20`,
+  `world/actions.py`), **moteur de tour** (`world/turn.py` : distribution des PA, horloge du
+  destin) et action **déplacer** (coût par terrain traversé), pur/headless + tests. Reste :
+  le **branchement UI** stratégique et les actions suivantes (recruter, convaincre…).
 - **Phase 4 — Settlements & diplomatie.** Hiérarchie des villes, allégeance, conditions de
   ralliement, interface de ville.
 - **Phase 5 — Moteur narratif.** Événements + prophéties data-driven, révélation graduelle,
@@ -294,7 +298,9 @@ n'est jamais supprimé — il est encapsulé, puis réutilisé pour les bataille
 
 - **Échelle** : nombre de personnages de départ, nombre de tours avant le déferlement, taille
   du monde, nombre de royaumes. *(À exposer dans `WorldGenConfig`, cf. §5.7.)*
-- **Points d'action** : formule exacte à partir des caractéristiques.
+- **Points d'action** : ~~formule exacte à partir des caractéristiques~~ — **tranché**
+  (Phase 3) : `PA = PA_BASE + Vigueur // PA_PALIER_VIGUEUR` soit 4..9 (`world/actions.py`),
+  à rééquilibrer en jouant.
 - **Magie** : mécaniques concrètes des différentes magies (§5.4).
 - **Traîtres** : conditions de bascule, de révélation d'allégeance, marge de manœuvre de l'Ombre.
 - **Duel / assassinat** : modèle de risque et de résolution.

@@ -80,7 +80,9 @@ hex-game/
     ├── settlement.py      # Settlement, Royaume, TailleSettlement, ConditionRalliement
     ├── names.py           # Noms semés (personnes/lieux/royaumes)
     ├── world_state.py     # WorldState (sortie du worldgen, sérialisable)
-    └── worldgen.py        # generer_character / generer_roster / generer_monde
+    ├── worldgen.py        # generer_character / generer_roster / generer_monde
+    ├── actions.py         # Phase 3 : formule des PA, action déplacer, destinations
+    └── turn.py            # Phase 3 : moteur de tour (distribution PA, horloge du destin)
 ```
 
 ## Flux d'exécution
@@ -190,6 +192,33 @@ def generer_roster(rng, config) -> Roster   # personnages + main_depart + elu_id
 - **Hors périmètre** (à venir) : **banque de portraits** réelle, cultures/langues de noms par
   royaume, arcs de prophétie, résolution de la **diplomatie** (montée de disposition — Phase 4).
 
+### Boucle d'actions (`world/actions.py`, `world/turn.py`) — Phase 3
+
+Couche **pure/headless** au-dessus de `WorldState` : l'UI stratégique ne fera qu'appeler ces
+fonctions (branchement à venir).
+
+```python
+# world/actions.py
+PA_BASE, PA_PALIER_VIGUEUR   # formule : PA = PA_BASE + Vigueur // PA_PALIER_VIGUEUR (4..9)
+def points_action_max(perso)                                  # lit la true_value de Vigueur
+def deplacer(world, perso_id, destination) -> ResultatAction  # coût = terrains traversés (Dijkstra)
+def destinations_accessibles(world, perso_id) -> set          # hexes atteignables avec les PA restants
+
+# world/turn.py
+def demarrer_partie(world)   # distribue les PA initiaux d'un monde fraîchement généré
+def finir_tour(world)        # tour += 1, horloge_du_destin -= 1, redistribue les PA
+```
+
+- **Se déplacer est une action** (PROJET §4) : le coût est la somme des
+  `tile.get_movement_cost()` le long du chemin optimal (`engine/pathfinding.find_path`).
+- À l'échelle stratégique un personnage **ne bloque pas** une case (une ville héberge tout le
+  monde) ; les PA restants vivent dans `Character.pa_restants`.
+- Les refus (hors carte, infranchissable, PA insuffisants) renvoient un
+  `ResultatAction(ok=False, erreur=…)` **sans modifier l'état** ; `cout`/`chemin` restent
+  renseignés quand ils sont calculables, pour l'affichage.
+- Les actions suivantes (recruter, convaincre, gérer…) s'ajouteront sur la même forme :
+  valider → appliquer → `ResultatAction`.
+
 ### IA (`game/ai.py`)
 
 ```python
@@ -298,6 +327,7 @@ Ne pas réintroduire de BFS faits-main.
 | Combat | `combat.py` | `tactical_map.py` |
 | Résolution de bataille | `battle_resolver.py` | `strategic_map.py`, `tactical_map.py` |
 | Personnage / génération | `world/character.py`, `world/worldgen.py` | — |
+| Boucle d'actions / tour | `world/actions.py`, `world/turn.py` | `world/character.py` (`pa_restants`) |
 | Aléa / RNG | `engine/rng.py` | tous les sous-systèmes semés |
 | IA stratégique | `ai.py` | `strategic_map.py` |
 | IA tactique | `ai.py` | `tactical_map.py` |
