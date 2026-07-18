@@ -210,10 +210,14 @@ def destinations_accessibles(world, perso_id) -> set          # hexes atteignabl
 def recruter(world, rng, recruteur_id, cible_id) -> ResultatAction  # tirage semé, PA dépensés même sur échec
 def chance_recrutement(recruteur, cible) -> float  # 50 % + (Charisme − exigence) ± Chance, borné 5..95 %
 def exigence_recrutement(cible) -> int             # moyenne des caractéristiques vraies (≈ calibre)
+def convaincre(world, rng, emissaire_id, royaume_id) -> ResultatAction  # diplomatie depuis un settlement du royaume
+def chance_convaincre(emissaire) -> float          # même forme de tirage (TIRAGE_*), sans exigence
+def verifier_ralliement(world, royaume) -> bool    # disposition pleine ET conditions ⇒ rallie=True
+def condition_remplie(world, condition) -> bool    # un membre de la main porte le renom exigé
 
 # world/turn.py
 def demarrer_partie(world)   # distribue les PA initiaux d'un monde fraîchement généré
-def finir_tour(world)        # tour += 1, horloge_du_destin -= 1, redistribue les PA
+def finir_tour(world)        # tour += 1, horloge -= 1, revérifie les ralliements, redistribue les PA
 ```
 
 - **Se déplacer est une action** (PROJET §4) : le coût est la somme des
@@ -223,6 +227,13 @@ def finir_tour(world)        # tour += 1, horloge_du_destin -= 1, redistribue le
   reussite=False`). Recrutée, la cible passe `affiliation=0` — son **allégeance secrète ne
   change pas** (les traîtres se recrutent comme les autres). Le RNG est **propagé** (flux
   `derive("actions")` du seed du monde, injectable en test).
+- **Convaincre** (Phase 4) : depuis un settlement du royaume ciblé, coût
+  `PA_COUT_CONVAINCRE` (3). Un succès fait monter la **disposition** de
+  `GAIN_DISPOSITION[taille]` (4→12 : une capitale offre une meilleure audience), forge le
+  renom de **diplomate** de l'émissaire et l'estime du royaume (`grand_livre`). Le
+  **ralliement** (`rallie=True`) exige disposition pleine (`SEUIL_RALLIEMENT`) **et** les
+  conditions semées au worldgen (renom dans un domaine, porté par la main) ; il est revérifié
+  en fin de tour. Le **royaume de départ est acquis d'office** (posé par `generer_monde`).
 - À l'échelle stratégique un personnage **ne bloque pas** une case (une ville héberge tout le
   monde) ; les PA restants vivent dans `Character.pa_restants`.
 - Les refus (hors carte, infranchissable, PA insuffisants) renvoient un
@@ -244,10 +255,12 @@ def run_campaign(screen, config)  # generer_monde → demarrer_partie → boucle
   se déplacer vers un hex en surbrillance ; clic droit = désélectionner ; Espace/bouton = fin
   de tour. Panneau bas : nom, `PA restants/max`, Vigueur en **label** (jamais un chiffre).
 - Seule la **main du joueur** est dessinée (les autres personnages vivent aux settlements).
-- **Panneau de ville minimal** (embryon de l'interface Phase 4) : un perso sélectionné posé
-  sur un settlement voit les résidents recrutables, chacun avec un **libellé** de chances
-  (`difficile / incertain / favorable` — jamais un chiffre) et un bouton `Recruter (2 PA)`.
-  Les boutons priment sur le clic-hex.
+- **Panneau de ville** (interface d'interaction, Phase 4 en cours) : un perso sélectionné
+  posé sur un settlement voit un **bloc diplomatie** — royaume, disposition en libellé
+  (`hostile / méfiante / hésitante / réceptive / presque acquise`), condition de ralliement
+  et bouton `Convaincre (3 PA)`, ou « ralliée à la coalition ! » — puis les résidents
+  recrutables, chacun avec un libellé de chances (`difficile / incertain / favorable` —
+  jamais un chiffre) et un bouton `Recruter (2 PA)`. Les boutons priment sur le clic-hex.
 
 ### IA (`game/ai.py`)
 

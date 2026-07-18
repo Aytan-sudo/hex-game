@@ -22,8 +22,12 @@ Actions codées ici, toutes sur la même forme valider → appliquer →
 - **recruter** — tirage semé : Charisme du recruteur contre l'**exigence** du
   recruté (dérivée de son calibre), infléchi par la Chance (§5.2). L'échec
   est possible et **coûte quand même les PA** (la tentative prend du temps).
+- **convaincre** (Phase 4) — la diplomatie : faire monter la **disposition**
+  d'un royaume depuis l'un de ses settlements (l'audience pèse selon la
+  taille du lieu). Le **ralliement** se déclenche à disposition pleine ET
+  conditions remplies (renom exigé dans un domaine, porté par la main).
 
-Les suivantes (convaincre, gérer…) s'ajouteront sur le même patron.
+Les suivantes (gérer, assassiner…) s'ajouteront sur le même patron.
 """
 
 from __future__ import annotations
@@ -34,18 +38,34 @@ from typing import List, Optional, Set, Tuple
 from engine.pathfinding import calculate_valid_moves, find_path
 from engine.rng import SeededRNG
 from world.character import Character, Trait
+from world.settlement import ConditionRalliement, Royaume, TailleSettlement
 from world.world_state import WorldState
 
 # Boutons d'équilibrage de la formule des PA (à rééquilibrer en jouant).
 PA_BASE: int = 4
 PA_PALIER_VIGUEUR: int = 20
 
+# Forme commune des tirages sociaux (recruter, convaincre…) : 50 % au point
+# d'équilibre, la Chance infléchit de ±10 points, bornes jamais-sûr/jamais-vain.
+TIRAGE_BASE: int = 50
+TIRAGE_POIDS_CHANCE: float = 0.2
+TIRAGE_PLANCHER: float = 0.05
+TIRAGE_PLAFOND: float = 0.95
+
 # Boutons d'équilibrage du recrutement.
 PA_COUT_RECRUTEMENT: int = 2
-RECRUTEMENT_BASE: int = 50           # points de % quand Charisme == exigence
-RECRUTEMENT_POIDS_CHANCE: float = 0.2  # la Chance infléchit de ±10 points max
-RECRUTEMENT_PLANCHER: float = 0.05   # jamais impossible…
-RECRUTEMENT_PLAFOND: float = 0.95    # …jamais garanti
+
+# Boutons d'équilibrage de la diplomatie (convaincre / ralliement).
+PA_COUT_CONVAINCRE: int = 3
+SEUIL_RALLIEMENT: int = 100          # disposition à atteindre pour rallier
+GAIN_DISPOSITION = {                  # l'audience pèse selon la taille du lieu
+    TailleSettlement.CAMPEMENT: 4,
+    TailleSettlement.VILLAGE: 6,
+    TailleSettlement.BOURGADE: 8,
+    TailleSettlement.CAPITALE: 12,
+}
+CONVAINCRE_REPUTATION_DIPLOMATE: int = 3  # renom de diplomate gagné par succès
+CONVAINCRE_REPUTATION_ROYAUME: int = 5    # estime du royaume envers l'émissaire
 
 
 def points_action_max(perso: Character) -> int:
@@ -150,10 +170,10 @@ def chance_recrutement(recruteur: Character, cible: Character) -> float:
     """
     charisme = recruteur.caracteristiques[Trait.CHARISME].true_value
     chance = recruteur.caracteristiques[Trait.CHANCE].true_value
-    points = (RECRUTEMENT_BASE
+    points = (TIRAGE_BASE
               + (charisme - exigence_recrutement(cible))
-              + (chance - 50) * RECRUTEMENT_POIDS_CHANCE)
-    return min(RECRUTEMENT_PLAFOND, max(RECRUTEMENT_PLANCHER, points / 100))
+              + (chance - 50) * TIRAGE_POIDS_CHANCE)
+    return min(TIRAGE_PLAFOND, max(TIRAGE_PLANCHER, points / 100))
 
 
 def recruter(
@@ -187,3 +207,92 @@ def recruter(
     if reussite:
         cible.affiliation = 0
     return ResultatAction(ok=True, cout=PA_COUT_RECRUTEMENT, reussite=reussite)
+
+
+# =============================================================================
+# CONVAINCRE — la diplomatie des royaumes (Phase 4 ; PROJET §3, §5.3)
+# =============================================================================
+
+def chance_convaincre(emissaire: Character) -> float:
+    """
+    Probabilité (bornée) qu'une audience porte : 50 % pour un Charisme moyen,
+    ±1 point de % par point d'écart, la Chance infléchissant de ±10 points.
+    """
+    charisme = emissaire.caracteristiques[Trait.CHARISME].true_value
+    chance = emissaire.caracteristiques[Trait.CHANCE].true_value
+    points = TIRAGE_BASE + (charisme - 50) + (chance - 50) * TIRAGE_POIDS_CHANCE
+    return min(TIRAGE_PLAFOND, max(TIRAGE_PLANCHER, points / 100))
+
+
+def condition_remplie(world: WorldState, condition: ConditionRalliement) -> bool:
+    """Vraie si un membre de la main porte le renom exigé dans le domaine."""
+    return any(
+        p.affiliation == 0
+        and p.grand_livre.reputation_domaine.get(condition.domaine_requis, 0)
+        >= condition.seuil
+        for p in world.personnages
+    )
+
+
+def conditions_remplies(world: WorldState, royaume: Royaume) -> bool:
+    return all(condition_remplie(world, c) for c in royaume.conditions)
+
+
+def verifier_ralliement(world: WorldState, royaume: Royaume) -> bool:
+    """
+    Déclenche le ralliement si disposition pleine ET conditions remplies.
+    Idempotent — appelé après chaque succès diplomatique et en fin de tour
+    (une condition peut se remplir plus tard, par une autre source de renom).
+    """
+    if (not royaume.rallie
+            and royaume.disposition >= SEUIL_RALLIEMENT
+            and conditions_remplies(world, royaume)):
+        royaume.rallie = True
+    return royaume.rallie
+
+
+def convaincre(
+    world: WorldState, rng: SeededRNG, emissaire_id: int, royaume_id: int
+) -> ResultatAction:
+    """
+    Plaide la cause de la coalition auprès d'un royaume, depuis l'un de ses
+    settlements. Coûte ``PA_COUT_CONVAINCRE``, tirage réussi ou non. Un succès
+    fait monter la **disposition** (d'autant plus que le lieu est grand — une
+    capitale offre une meilleure audience qu'un campement), forge le **renom de
+    diplomate** de l'émissaire et l'estime du royaume à son égard, puis vérifie
+    le ralliement.
+    """
+    emissaire = world.personnage(emissaire_id)
+    royaume = world.royaume(royaume_id)
+    lieu = next(
+        (s for s in world.settlements
+         if s.position == emissaire.location and s.royaume_id == royaume_id),
+        None,
+    )
+
+    if lieu is None:
+        return ResultatAction(ok=False, erreur="il faut être dans un settlement du royaume")
+    if royaume.rallie:
+        return ResultatAction(ok=False, erreur="déjà rallié à la coalition")
+    if emissaire.pa_restants < PA_COUT_CONVAINCRE:
+        return ResultatAction(
+            ok=False,
+            erreur=(f"points d'action insuffisants "
+                    f"({emissaire.pa_restants} PA, coût {PA_COUT_CONVAINCRE})"),
+        )
+
+    emissaire.pa_restants -= PA_COUT_CONVAINCRE
+    reussite = rng.random() < chance_convaincre(emissaire)
+    if reussite:
+        royaume.disposition = min(
+            SEUIL_RALLIEMENT, royaume.disposition + GAIN_DISPOSITION[lieu.taille]
+        )
+        livre = emissaire.grand_livre
+        livre.reputation_domaine["diplomate"] = (
+            livre.reputation_domaine.get("diplomate", 0) + CONVAINCRE_REPUTATION_DIPLOMATE
+        )
+        livre.reputation_royaume[royaume_id] = (
+            livre.reputation_royaume.get(royaume_id, 0) + CONVAINCRE_REPUTATION_ROYAUME
+        )
+        verifier_ralliement(world, royaume)
+    return ResultatAction(ok=True, cout=PA_COUT_CONVAINCRE, reussite=reussite)

@@ -9,17 +9,26 @@ from engine.rng import SeededRNG
 from engine.tile import Tile
 from game.terrain import TerrainType
 from world.actions import (
+    CONVAINCRE_REPUTATION_DIPLOMATE,
+    CONVAINCRE_REPUTATION_ROYAUME,
+    GAIN_DISPOSITION,
     PA_BASE,
+    PA_COUT_CONVAINCRE,
     PA_COUT_RECRUTEMENT,
-    RECRUTEMENT_PLAFOND,
-    RECRUTEMENT_PLANCHER,
+    SEUIL_RALLIEMENT,
+    TIRAGE_PLAFOND,
+    TIRAGE_PLANCHER,
+    chance_convaincre,
     chance_recrutement,
+    convaincre,
     deplacer,
     destinations_accessibles,
     exigence_recrutement,
     points_action_max,
     recruter,
+    verifier_ralliement,
 )
+from world.settlement import ConditionRalliement, Royaume, Settlement, TailleSettlement
 from world.character import Trait, nouveau_character
 from world.turn import demarrer_partie, finir_tour
 from world.world_state import WorldState
@@ -167,8 +176,8 @@ def test_exigence_et_chance_de_recrutement():
     assert chance_recrutement(recruteur, cible) == 0.5
     # Bornes : jamais garanti, jamais impossible.
     ecrase = nouveau_character(2, "X", valeurs={t: 100 for t in Trait})
-    assert chance_recrutement(ecrase, cible) == RECRUTEMENT_PLAFOND
-    assert chance_recrutement(cible, ecrase) == RECRUTEMENT_PLANCHER
+    assert chance_recrutement(ecrase, cible) == TIRAGE_PLAFOND
+    assert chance_recrutement(cible, ecrase) == TIRAGE_PLANCHER
 
 
 def test_recruter_reussi():
@@ -204,6 +213,106 @@ def test_recruter_refus_sans_effet_de_bord():
     assert not resultat.ok and "insuffisants" in resultat.erreur
     assert recruteur.pa_restants == PA_COUT_RECRUTEMENT - 1  # rien dépensé
     assert cible.affiliation is None
+
+
+# --- Action « convaincre » & ralliement -------------------------------------
+
+def _monde_diplomatie(chance_tirage, taille=TailleSettlement.VILLAGE,
+                      disposition=50, conditions=None):
+    """Un settlement d'un royaume non rallié, et un émissaire (6 PA) dessus."""
+    tiles = {(0, 0): _tuile(0, 0)}
+    lieu = Settlement(id=0, nom="Bourg", position=(0, 0), taille=taille, royaume_id=0)
+    royaume = Royaume(id=0, nom="Essai", capitale_id=0, settlement_ids=[0],
+                      disposition=disposition, conditions=conditions or [])
+    emissaire = nouveau_character(
+        0, "Émissaire",
+        valeurs={Trait.VIGUEUR: 40, Trait.CHARISME: 50, Trait.CHANCE: 50},
+        location=(0, 0), affiliation=0,
+    )
+    monde = WorldState(seed=0, tiles=tiles, personnages=[emissaire],
+                       settlements=[lieu], royaumes=[royaume])
+    demarrer_partie(monde)
+    return monde, _RngForce(chance_tirage)
+
+
+def test_chance_convaincre_et_bornes():
+    monde, _ = _monde_diplomatie(0.0)
+    assert chance_convaincre(monde.personnage(0)) == 0.5  # Charisme et Chance moyens
+    dore = nouveau_character(1, "X", valeurs={t: 100 for t in Trait})
+    terne = nouveau_character(2, "Y", valeurs={t: 0 for t in Trait})
+    assert chance_convaincre(dore) == TIRAGE_PLAFOND
+    assert chance_convaincre(terne) == TIRAGE_PLANCHER
+
+
+def test_convaincre_reussi_fait_monter_disposition_et_renom():
+    monde, rng = _monde_diplomatie(0.0)  # tirage toujours gagnant
+    resultat = convaincre(monde, rng, 0, 0)
+    assert resultat.ok and resultat.reussite
+    assert monde.royaume(0).disposition == 50 + GAIN_DISPOSITION[TailleSettlement.VILLAGE]
+    livre = monde.personnage(0).grand_livre
+    assert livre.reputation_domaine["diplomate"] == CONVAINCRE_REPUTATION_DIPLOMATE
+    assert livre.reputation_royaume[0] == CONVAINCRE_REPUTATION_ROYAUME
+    assert monde.personnage(0).pa_restants == 6 - PA_COUT_CONVAINCRE
+
+
+def test_convaincre_audience_pese_selon_la_taille():
+    petit, rng = _monde_diplomatie(0.0, taille=TailleSettlement.CAMPEMENT)
+    grand, _ = _monde_diplomatie(0.0, taille=TailleSettlement.CAPITALE)
+    convaincre(petit, rng, 0, 0)
+    convaincre(grand, rng, 0, 0)
+    assert petit.royaume(0).disposition == 50 + GAIN_DISPOSITION[TailleSettlement.CAMPEMENT]
+    assert grand.royaume(0).disposition == 50 + GAIN_DISPOSITION[TailleSettlement.CAPITALE]
+
+
+def test_convaincre_echec_coute_les_pa_sans_rien_changer():
+    monde, rng = _monde_diplomatie(0.999)  # perd toujours
+    resultat = convaincre(monde, rng, 0, 0)
+    assert resultat.ok and resultat.reussite is False
+    assert monde.royaume(0).disposition == 50
+    assert monde.personnage(0).grand_livre.reputation_domaine == {}
+    assert monde.personnage(0).pa_restants == 6 - PA_COUT_CONVAINCRE
+
+
+def test_convaincre_refus_sans_effet_de_bord():
+    monde, rng = _monde_diplomatie(0.0)
+    emissaire = monde.personnage(0)
+
+    emissaire.location = (9, 9)                          # pas dans le royaume
+    assert "settlement" in convaincre(monde, rng, 0, 0).erreur
+    emissaire.location = (0, 0)
+
+    monde.royaume(0).rallie = True                       # déjà acquis
+    assert "rallié" in convaincre(monde, rng, 0, 0).erreur
+    monde.royaume(0).rallie = False
+
+    emissaire.pa_restants = PA_COUT_CONVAINCRE - 1
+    resultat = convaincre(monde, rng, 0, 0)
+    assert not resultat.ok and "insuffisants" in resultat.erreur
+    assert emissaire.pa_restants == PA_COUT_CONVAINCRE - 1  # rien dépensé
+    assert monde.royaume(0).disposition == 50
+
+
+def test_ralliement_disposition_pleine_sans_condition():
+    monde, rng = _monde_diplomatie(0.0, disposition=SEUIL_RALLIEMENT - 1)
+    convaincre(monde, rng, 0, 0)
+    assert monde.royaume(0).disposition == SEUIL_RALLIEMENT  # écrêté
+    assert monde.royaume(0).rallie
+
+
+def test_ralliement_bloque_puis_debloque_par_la_condition():
+    condition = ConditionRalliement(domaine_requis="guerrier", seuil=40)
+    monde, rng = _monde_diplomatie(
+        0.0, disposition=SEUIL_RALLIEMENT - 1, conditions=[condition]
+    )
+    convaincre(monde, rng, 0, 0)
+    assert monde.royaume(0).disposition == SEUIL_RALLIEMENT
+    assert not monde.royaume(0).rallie                   # le renom manque
+
+    # Le renom exigé arrive plus tard (bataille, mission…) : la fin de tour
+    # revérifie et déclenche le ralliement.
+    monde.personnage(0).grand_livre.reputation_domaine["guerrier"] = 40
+    finir_tour(monde)
+    assert monde.royaume(0).rallie
 
 
 # --- Intégration avec le worldgen ------------------------------------------

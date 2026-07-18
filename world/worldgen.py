@@ -406,6 +406,10 @@ def generer_monde(rng: SeededRNG, config: Optional[WorldGenConfig] = None) -> Wo
     for perso in autres:
         perso.location = place_rng.choice(settlements).position
 
+    # Le royaume de départ est acquis d'office : la coalition naît chez lui.
+    royaumes[0].disposition = 100
+    royaumes[0].rallie = True
+
     return WorldState(
         seed=rng.seed,
         tiles=tiles,

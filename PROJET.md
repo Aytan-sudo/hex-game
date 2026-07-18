@@ -14,6 +14,14 @@ Hex-Game fait **revivre une épopée centrée sur les personnages et les royaume
 inspirée de la *Roue du Temps* (et, pour les magies, d'un mélange RdT × *l'Art et le Vif* de
 Robin Hobb).
 
+**Référence mécanique : le jeu de plateau *Star Wars Rebellion*** (FFG) — les personnages y
+sont la **monnaie d'action** (peu de leaders, les envoyer *ici* c'est renoncer à *là*), on
+**rallie des planètes** (≈ nos royaumes et leur disposition), la victoire se joue **contre le
+temps** face à un empire écrasant (≈ l'horloge du destin et le déferlement), et l'information
+cachée est centrale (la base rebelle ≈ notre Élu et les allégeances secrètes). Là où on
+diverge volontairement : nos personnages sont **procéduraux, cachés et façonnés en jouant**
+(couche vrai/connu, grand livre) au lieu d'un casting fixe aux compétences publiques.
+
 Le joueur contrôle au début **quelques personnages** — un portrait dans une case hexagonale —
 sur la carte du monde. Chaque tour, il décide **où ils se déplacent et ce qu'ils font** :
 recruter d'autres personnages, convaincre un campement / village / bourgade / capitale de
@@ -291,8 +299,15 @@ n'est jamais supprimé — il est encapsulé, puis réutilisé pour les bataille
   Charisme vs exigence dérivée du calibre, infléchi par la Chance, borné 5-95 % ; l'échec coûte
   les PA) + **panneau de ville minimal** (résidents recrutables, chances en libellé). Reste :
   **convaincre** (settlements/royaumes — porté par la Phase 4 avec l'interface de ville complète).
-- **Phase 4 — Settlements & diplomatie.** Hiérarchie des villes, allégeance, conditions de
-  ralliement, interface de ville.
+- **Phase 4 — Settlements & diplomatie.** *(en cours — cœur fait, 2026-07-18)* Hiérarchie des
+  villes, allégeance, conditions de ralliement, interface de ville. Fait : action
+  **convaincre** (`world/actions.py` : tirage Charisme/Chance, gain de disposition selon la
+  **taille** du lieu, renom de diplomate + estime du royaume au grand livre), **ralliement**
+  (disposition pleine ET conditions remplies par la main, revérifié en fin de tour ; le royaume
+  de départ est acquis d'office) et **bloc diplomatie** du panneau de ville (disposition et
+  conditions en libellés). Reste : l'interface de ville **dimensionnée par la taille**, la
+  gestion de ville, et d'autres **sources de renom** (guerrier/mage/royaute — Phases 5-6) pour
+  rendre toutes les conditions atteignables.
 - **Phase 5 — Moteur narratif.** Événements + prophéties data-driven, révélation graduelle,
   horloge du destin, l'ennemi « Metteur en scène ».
 - **Phase 6 — Bataille finale.** Rebrancher le tactique comme climax.

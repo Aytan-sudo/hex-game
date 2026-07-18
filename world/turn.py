@@ -11,7 +11,7 @@ Le déferlement lui-même (horloge à 0) est du ressort du moteur narratif
 
 from __future__ import annotations
 
-from world.actions import points_action_max
+from world.actions import points_action_max, verifier_ralliement
 from world.world_state import WorldState
 
 
@@ -30,4 +30,8 @@ def finir_tour(world: WorldState) -> None:
     """Clôt le tour courant et amorce le suivant."""
     world.tour += 1
     world.horloge_du_destin = max(0, world.horloge_du_destin - 1)
+    # Une condition de ralliement peut s'être remplie entre-temps (renom gagné
+    # ailleurs) : on revérifie les royaumes à disposition pleine.
+    for royaume in world.royaumes:
+        verifier_ralliement(world, royaume)
     distribuer_points_action(world)

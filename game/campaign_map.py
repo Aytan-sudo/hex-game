@@ -34,14 +34,18 @@ from engine.input_handler import CameraController
 from engine.rng import SeededRNG
 from game.config import INPUT, UI
 from world.actions import (
+    PA_COUT_CONVAINCRE,
     PA_COUT_RECRUTEMENT,
     ResultatAction,
     chance_recrutement,
+    condition_remplie,
+    convaincre,
     deplacer,
     destinations_accessibles,
     points_action_max,
     recruter,
 )
+from world.settlement import Royaume
 from world.character import Character, Trait, label
 from world.settlement import Settlement, TailleSettlement
 from world.turn import demarrer_partie, finir_tour
@@ -67,6 +71,19 @@ def _libelle_chance(p: float) -> str:
     if p < 0.65:
         return "incertain"
     return "favorable"
+
+
+def _libelle_disposition(disposition: int) -> str:
+    """Libellé grossier de la disposition d'un royaume — jamais un chiffre."""
+    if disposition < 20:
+        return "hostile"
+    if disposition < 40:
+        return "méfiante"
+    if disposition < 60:
+        return "hésitante"
+    if disposition < 80:
+        return "réceptive"
+    return "presque acquise"
 
 
 # Rayon du marqueur de settlement, en fraction de la taille d'hex.
@@ -167,6 +184,21 @@ class CampaignState:
             return ResultatAction(ok=False, erreur="aucun personnage sélectionné")
         return recruter(self.world, self.action_rng, self.selected_id, cible_id)
 
+    def royaume_ici(self) -> Optional[Royaume]:
+        """Le royaume du settlement où se tient le perso sélectionné."""
+        perso = self.perso_selectionne
+        if perso is None:
+            return None
+        lieu = self.settlement_par_pos.get(perso.location)
+        return None if lieu is None else self.world.royaume(lieu.royaume_id)
+
+    def convaincre(self) -> ResultatAction:
+        """Plaide pour la coalition auprès du royaume du lieu (tirage semé)."""
+        royaume = self.royaume_ici()
+        if self.selected_id is None or royaume is None:
+            return ResultatAction(ok=False, erreur="aucun émissaire en ville")
+        return convaincre(self.world, self.action_rng, self.selected_id, royaume.id)
+
     def finir_tour(self) -> None:
         finir_tour(self.world)
         self._rafraichir_destinations()  # les PA sont revenus
@@ -186,9 +218,10 @@ class CampaignRenderer:
             UI.button_width,
             UI.button_height,
         )
-        # Boutons « Recruter » du panneau de ville, reconstruits à chaque frame
-        # rendue : [(rect, id de la cible)].
+        # Boutons du panneau de ville, reconstruits à chaque frame rendue :
+        # « Recruter » = [(rect, id de la cible)] ; « Convaincre » = rect ou None.
         self.boutons_recruter: List[Tuple[pygame.Rect, int]] = []
+        self.bouton_convaincre: Optional[pygame.Rect] = None
 
     def render_frame(
         self,
@@ -324,22 +357,27 @@ class CampaignRenderer:
 
     def _render_ville_panel(self, state: CampaignState) -> None:
         """
-        Panneau de ville (embryon Phase 4) : visible quand le perso sélectionné
-        se tient sur un settlement où résident des recrutables. Les chances de
-        recrutement sont montrées en **libellé** (jamais un chiffre — même
-        esprit que la couche vrai/connu).
+        Panneau de ville (interface d'interaction, Phase 4 en cours) : visible
+        quand le perso sélectionné se tient sur un settlement. Bloc diplomatie
+        (disposition du royaume, condition de ralliement, Convaincre) puis les
+        résidents recrutables. Chances et disposition sont montrées en
+        **libellé** (jamais un chiffre — même esprit que la couche vrai/connu).
         """
         self.boutons_recruter = []
+        self.bouton_convaincre = None
         perso = state.perso_selectionne
-        recrues = state.recrutables_ici()
-        if perso is None or not recrues:
+        lieu = state.settlement_par_pos.get(perso.location) if perso else None
+        if perso is None or lieu is None:
             return
 
-        lieu = state.settlement_par_pos[perso.location]
-        largeur, ligne_h = 320, 52
+        royaume = state.world.royaume(lieu.royaume_id)
+        recrues = state.recrutables_ici()
+        mouse_pos = pygame.mouse.get_pos()
+
+        largeur, ligne_h, haut_royaume = 320, 52, 92
         x = self.screen_width - largeur - UI.button_margin
         y = UI.top_panel_height + UI.button_height + 2 * UI.button_margin
-        hauteur = 34 + ligne_h * len(recrues)
+        hauteur = 34 + haut_royaume + ligne_h * len(recrues)
         panel = pygame.Rect(x, y, largeur, hauteur)
         pygame.draw.rect(self.screen, UI.panel_bg_color, panel, border_radius=6)
         pygame.draw.rect(self.screen, (90, 90, 110), panel, 2, border_radius=6)
@@ -349,9 +387,44 @@ class CampaignRenderer:
         )
         self.screen.blit(titre, (x + 10, y + 8))
 
-        mouse_pos = pygame.mouse.get_pos()
+        # --- Bloc diplomatie : le royaume du lieu -------------------------
+        couleur_royaume = ROYAUME_PALETTE[royaume.id % len(ROYAUME_PALETTE)]
+        nom_r = self.font.render(royaume.nom, True, couleur_royaume)
+        self.screen.blit(nom_r, (x + 10, y + 34))
+        if royaume.rallie:
+            etat = self.font.render("ralliée à la coalition !", True, (140, 220, 140))
+            self.screen.blit(etat, (x + 10, y + 54))
+        else:
+            etat = self.font.render(
+                f"disposition : {_libelle_disposition(royaume.disposition)}",
+                True, UI.hint_color,
+            )
+            self.screen.blit(etat, (x + 10, y + 54))
+            for condition in royaume.conditions[:1]:
+                remplie = condition_remplie(state.world, condition)
+                texte = f"exige : renom de {condition.domaine_requis}"
+                texte += " (remplie)" if remplie else ""
+                cond = self.font.render(
+                    texte, True, (140, 220, 140) if remplie else (220, 160, 120)
+                )
+                self.screen.blit(cond, (x + 10, y + 74))
+
+            bouton = pygame.Rect(x + largeur - 130, y + 40, 120, 30)
+            actif = perso.pa_restants >= PA_COUT_CONVAINCRE
+            if actif:
+                couleur = (80, 100, 140) if bouton.collidepoint(mouse_pos) else (60, 80, 120)
+            else:
+                couleur = (70, 70, 80)
+            pygame.draw.rect(self.screen, couleur, bouton, border_radius=5)
+            texte = self.font.render(
+                f"Convaincre ({PA_COUT_CONVAINCRE} PA)", True, UI.text_color
+            )
+            self.screen.blit(texte, texte.get_rect(center=bouton.center))
+            self.bouton_convaincre = bouton
+
+        # --- Résidents recrutables ----------------------------------------
         for i, recrue in enumerate(recrues):
-            ligne_y = y + 34 + i * ligne_h
+            ligne_y = y + 34 + haut_royaume + i * ligne_h
             nom = self.font.render(recrue.nom, True, (255, 215, 100))
             self.screen.blit(nom, (x + 10, ligne_y))
             avis = self.font.render(
@@ -379,6 +452,10 @@ class CampaignRenderer:
             if rect.collidepoint(pos):
                 return cible_id
         return None
+
+    def convaincre_clique(self, pos: Tuple[int, int]) -> bool:
+        """Vrai si le bouton « Convaincre » du panneau est sous ``pos``."""
+        return self.bouton_convaincre is not None and self.bouton_convaincre.collidepoint(pos)
 
     def _render_bottom_panel(self, state: CampaignState, hover_hex: Optional[HexCoord]) -> None:
         pygame.draw.rect(
@@ -481,6 +558,20 @@ def run_campaign(screen: pygame.Surface, config: dict) -> bool:
 
                 # Le panneau de ville est au-dessus de la carte : ses boutons
                 # priment sur le clic-hex.
+                if renderer.convaincre_clique(mouse_pos):
+                    royaume = state.royaume_ici()
+                    resultat = state.convaincre()
+                    if not resultat.ok:
+                        message = resultat.erreur
+                    elif not resultat.reussite:
+                        message = f"Les émissaires de {royaume.nom} restent de marbre."
+                    elif royaume.rallie:
+                        message = f"{royaume.nom} rejoint la coalition !"
+                    else:
+                        message = f"La disposition de {royaume.nom} s'améliore."
+                    message_timer = 2.5
+                    continue
+
                 cible_id = renderer.cible_recrutement_cliquee(mouse_pos)
                 if cible_id is not None:
                     resultat = state.recruter(cible_id)
