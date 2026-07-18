@@ -207,6 +207,9 @@ PA_BASE, PA_PALIER_VIGUEUR   # formule : PA = PA_BASE + Vigueur // PA_PALIER_VIG
 def points_action_max(perso)                                  # lit la true_value de Vigueur
 def deplacer(world, perso_id, destination) -> ResultatAction  # coût = terrains traversés (Dijkstra)
 def destinations_accessibles(world, perso_id) -> set          # hexes atteignables avec les PA restants
+def recruter(world, rng, recruteur_id, cible_id) -> ResultatAction  # tirage semé, PA dépensés même sur échec
+def chance_recrutement(recruteur, cible) -> float  # 50 % + (Charisme − exigence) ± Chance, borné 5..95 %
+def exigence_recrutement(cible) -> int             # moyenne des caractéristiques vraies (≈ calibre)
 
 # world/turn.py
 def demarrer_partie(world)   # distribue les PA initiaux d'un monde fraîchement généré
@@ -215,6 +218,11 @@ def finir_tour(world)        # tour += 1, horloge_du_destin -= 1, redistribue le
 
 - **Se déplacer est une action** (PROJET §4) : le coût est la somme des
   `tile.get_movement_cost()` le long du chemin optimal (`engine/pathfinding.find_path`).
+- **Recruter** : il faut être **sur place** (là où la cible réside) et payer
+  `PA_COUT_RECRUTEMENT` (2) ; l'échec du tirage coûte quand même les PA (`ok=True,
+  reussite=False`). Recrutée, la cible passe `affiliation=0` — son **allégeance secrète ne
+  change pas** (les traîtres se recrutent comme les autres). Le RNG est **propagé** (flux
+  `derive("actions")` du seed du monde, injectable en test).
 - À l'échelle stratégique un personnage **ne bloque pas** une case (une ville héberge tout le
   monde) ; les PA restants vivent dans `Character.pa_restants`.
 - Les refus (hors carte, infranchissable, PA insuffisants) renvoient un
@@ -235,8 +243,11 @@ def run_campaign(screen, config)  # generer_monde → demarrer_partie → boucle
   `world/turn`. Clic gauche = sélectionner (re-clic = cycle entre cohabitants d'une case) ou
   se déplacer vers un hex en surbrillance ; clic droit = désélectionner ; Espace/bouton = fin
   de tour. Panneau bas : nom, `PA restants/max`, Vigueur en **label** (jamais un chiffre).
-- Seule la **main du joueur** est dessinée (les autres personnages vivent aux settlements,
-  interface de ville en Phase 4).
+- Seule la **main du joueur** est dessinée (les autres personnages vivent aux settlements).
+- **Panneau de ville minimal** (embryon de l'interface Phase 4) : un perso sélectionné posé
+  sur un settlement voit les résidents recrutables, chacun avec un **libellé** de chances
+  (`difficile / incertain / favorable` — jamais un chiffre) et un bouton `Recruter (2 PA)`.
+  Les boutons priment sur le clic-hex.
 
 ### IA (`game/ai.py`)
 

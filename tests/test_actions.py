@@ -10,9 +10,15 @@ from engine.tile import Tile
 from game.terrain import TerrainType
 from world.actions import (
     PA_BASE,
+    PA_COUT_RECRUTEMENT,
+    RECRUTEMENT_PLAFOND,
+    RECRUTEMENT_PLANCHER,
+    chance_recrutement,
     deplacer,
     destinations_accessibles,
+    exigence_recrutement,
     points_action_max,
+    recruter,
 )
 from world.character import Trait, nouveau_character
 from world.turn import demarrer_partie, finir_tour
@@ -121,6 +127,83 @@ def test_destinations_accessibles_coherentes():
     demarrer_partie(monde)
     monde.personnage(0).pa_restants = 2
     assert destinations_accessibles(monde, 0) == {(1, 0), (2, 0)}
+
+
+# --- Action « recruter » ----------------------------------------------------
+
+class _RngForce:
+    """Stub de RNG dont le tirage est fixé — pour tester les deux issues."""
+
+    def __init__(self, valeur):
+        self.valeur = valeur
+
+    def random(self):
+        return self.valeur
+
+
+def _monde_recrutement(chance_tirage, charisme=50, exigence=50):
+    """Un hex, un recruteur (6 PA) et une cible libre au même endroit."""
+    tiles = {(0, 0): _tuile(0, 0)}
+    recruteur = nouveau_character(
+        0, "Recruteur",
+        valeurs={Trait.VIGUEUR: 40, Trait.CHARISME: charisme, Trait.CHANCE: 50},
+        location=(0, 0), affiliation=0,
+    )
+    # Toutes les caractéristiques de la cible à la même valeur ⇒ exigence = valeur.
+    cible = nouveau_character(
+        1, "Cible", valeurs={t: exigence for t in Trait}, location=(0, 0),
+    )
+    monde = WorldState(seed=0, tiles=tiles, personnages=[recruteur, cible],
+                       settlements=[], royaumes=[])
+    demarrer_partie(monde)
+    return monde, _RngForce(chance_tirage)
+
+
+def test_exigence_et_chance_de_recrutement():
+    monde, _ = _monde_recrutement(0.0)
+    recruteur, cible = monde.personnage(0), monde.personnage(1)
+    assert exigence_recrutement(cible) == 50
+    # Charisme == exigence, Chance neutre : pile 50 %.
+    assert chance_recrutement(recruteur, cible) == 0.5
+    # Bornes : jamais garanti, jamais impossible.
+    ecrase = nouveau_character(2, "X", valeurs={t: 100 for t in Trait})
+    assert chance_recrutement(ecrase, cible) == RECRUTEMENT_PLAFOND
+    assert chance_recrutement(cible, ecrase) == RECRUTEMENT_PLANCHER
+
+
+def test_recruter_reussi():
+    monde, rng = _monde_recrutement(0.0)  # tirage toujours gagnant
+    resultat = recruter(monde, rng, 0, 1)
+    assert resultat.ok and resultat.reussite
+    assert monde.personnage(1).affiliation == 0
+    assert monde.personnage(0).pa_restants == points_action_max(monde.personnage(0)) - PA_COUT_RECRUTEMENT
+
+
+def test_recruter_echoue_mais_coute_les_pa():
+    monde, rng = _monde_recrutement(0.999)  # au-dessus du plafond : perd toujours
+    resultat = recruter(monde, rng, 0, 1)
+    assert resultat.ok and resultat.reussite is False
+    assert monde.personnage(1).affiliation is None       # pas recrutée…
+    assert monde.personnage(0).pa_restants == points_action_max(monde.personnage(0)) - PA_COUT_RECRUTEMENT
+
+
+def test_recruter_refus_sans_effet_de_bord():
+    monde, rng = _monde_recrutement(0.0)
+    recruteur, cible = monde.personnage(0), monde.personnage(1)
+
+    cible.location = (9, 9)                              # plus sur place
+    assert not recruter(monde, rng, 0, 1).ok
+    cible.location = (0, 0)
+
+    cible.affiliation = 0                                # déjà dans la main
+    assert "main" in recruter(monde, rng, 0, 1).erreur
+    cible.affiliation = None
+
+    recruteur.pa_restants = PA_COUT_RECRUTEMENT - 1      # trop fatigué
+    resultat = recruter(monde, rng, 0, 1)
+    assert not resultat.ok and "insuffisants" in resultat.erreur
+    assert recruteur.pa_restants == PA_COUT_RECRUTEMENT - 1  # rien dépensé
+    assert cible.affiliation is None
 
 
 # --- Intégration avec le worldgen ------------------------------------------

@@ -101,10 +101,66 @@ def test_finir_tour_rafraichit_les_destinations():
     assert state.destinations  # de nouveau en surbrillance
 
 
+# --- Recrutement (panneau de ville) ----------------------------------------
+
+class _RngForce:
+    """Stub de RNG au tirage fixé — force l'issue du recrutement."""
+
+    def __init__(self, valeur):
+        self.valeur = valeur
+
+    def random(self):
+        return self.valeur
+
+
+def _avec_recrutable(monde):
+    """Installe un personnage libre à la capitale de départ et le retourne."""
+    libre = next(p for p in monde.personnages if p.affiliation is None)
+    libre.location = _capitale_depart(monde)
+    return libre
+
+
+def test_recrutables_ici_liste_les_residents_libres():
+    monde = _monde_de_test()
+    libre = _avec_recrutable(monde)
+    state = CampaignState(monde)
+    state.clic_hex(_capitale_depart(monde))  # sélectionne un perso de la main
+    assert libre in state.recrutables_ici()
+    assert all(p.affiliation is None for p in state.recrutables_ici())
+
+
+def test_recruter_depuis_l_etat_fait_grossir_la_main():
+    monde = _monde_de_test()
+    libre = _avec_recrutable(monde)
+    state = CampaignState(monde, action_rng=_RngForce(0.0))  # toujours gagnant
+    state.clic_hex(_capitale_depart(monde))
+    taille_main = len(state.persos_joueur())
+
+    resultat = state.recruter(libre.id)
+    assert resultat.ok and resultat.reussite
+    assert libre.affiliation == 0
+    assert len(state.persos_joueur()) == taille_main + 1
+    assert libre not in state.recrutables_ici()  # plus recrutable
+
+
+def test_recrutement_rate_ne_change_rien_a_la_main():
+    monde = _monde_de_test()
+    libre = _avec_recrutable(monde)
+    state = CampaignState(monde, action_rng=_RngForce(0.999))  # perd toujours
+    state.clic_hex(_capitale_depart(monde))
+    taille_main = len(state.persos_joueur())
+
+    resultat = state.recruter(libre.id)
+    assert resultat.ok and resultat.reussite is False
+    assert libre.affiliation is None
+    assert len(state.persos_joueur()) == taille_main
+
+
 # --- Rendu (fumée, SDL dummy) ----------------------------------------------
 
 def test_render_frame_headless():
     monde = _monde_de_test()
+    _avec_recrutable(monde)  # le panneau de ville doit se dessiner aussi
     state = CampaignState(monde)
     state.clic_hex(_capitale_depart(monde))
 
@@ -114,3 +170,8 @@ def test_render_frame_headless():
     grid = HexGrid(hex_size=camera.hex_size, pointy_top=True)
     renderer.render_frame(state, camera, grid, hover_hex=None,
                           message="test", message_timer=1.0)
+    # Les boutons « Recruter » du panneau sont bien exposés au clic.
+    assert renderer.boutons_recruter
+    assert renderer.cible_recrutement_cliquee(
+        renderer.boutons_recruter[0][0].center
+    ) == renderer.boutons_recruter[0][1]

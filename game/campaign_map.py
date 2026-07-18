@@ -14,9 +14,12 @@ Découpage (même patron que ``strategic_map.py``) :
   marqueurs de personnages, panneaux, bouton fin de tour).
 - ``run_campaign(screen, config)`` — génère un monde, le démarre et boucle.
 
-Hors périmètre (phases suivantes) : interface de ville (Phase 4), actions
-recruter/convaincre, personnages hors de la main du joueur (affichés via les
-settlements où ils résident).
+L'écran inclut un **panneau de ville minimal** (embryon de l'interface
+d'interaction du §4, étoffée en Phase 4) : un perso sélectionné posé sur un
+settlement voit les personnages qui y résident et peut tenter de les
+**recruter** (tirage semé côté ``world/actions``, échec possible qui coûte
+les PA). Hors périmètre (phases suivantes) : convaincre/gérer, l'interface
+de ville complète dimensionnée par la taille.
 """
 
 from __future__ import annotations
@@ -30,7 +33,15 @@ from engine.hex_grid import HexCoord, HexGrid
 from engine.input_handler import CameraController
 from engine.rng import SeededRNG
 from game.config import INPUT, UI
-from world.actions import deplacer, destinations_accessibles, points_action_max
+from world.actions import (
+    PA_COUT_RECRUTEMENT,
+    ResultatAction,
+    chance_recrutement,
+    deplacer,
+    destinations_accessibles,
+    points_action_max,
+    recruter,
+)
 from world.character import Character, Trait, label
 from world.settlement import Settlement, TailleSettlement
 from world.turn import demarrer_partie, finir_tour
@@ -49,6 +60,15 @@ ROYAUME_PALETTE: Tuple[Tuple[int, int, int], ...] = (
     (149, 165, 166),  # gris
 )
 
+def _libelle_chance(p: float) -> str:
+    """Libellé grossier d'une probabilité de recrutement — jamais un chiffre."""
+    if p < 0.35:
+        return "difficile"
+    if p < 0.65:
+        return "incertain"
+    return "favorable"
+
+
 # Rayon du marqueur de settlement, en fraction de la taille d'hex.
 _RAYON_PAR_TAILLE = {
     TailleSettlement.CAMPEMENT: 0.22,
@@ -65,7 +85,7 @@ class CampaignState:
     les effets passent par ``world/actions.py`` / ``world/turn.py``.
     """
 
-    def __init__(self, world: WorldState):
+    def __init__(self, world: WorldState, action_rng: Optional[SeededRNG] = None):
         self.world = world
         self.selected_id: Optional[int] = None
         self.destinations: Set[Tuple[int, int]] = set()
@@ -73,6 +93,9 @@ class CampaignState:
         self.settlement_par_pos: Dict[Tuple[int, int], Settlement] = {
             s.position: s for s in world.settlements
         }
+        # Flux d'aléa des tirages d'action, dérivé du seed du monde (injectable
+        # en test) : même monde + mêmes tentatives ⇒ mêmes issues.
+        self.action_rng = action_rng or SeededRNG(world.seed).derive("actions")
 
     # --- sélection ----------------------------------------------------------
 
@@ -130,6 +153,20 @@ class CampaignState:
 
         return ("rien", None)
 
+    def recrutables_ici(self) -> List[Character]:
+        """Les résidents recrutables là où se tient le perso sélectionné."""
+        perso = self.perso_selectionne
+        if perso is None or perso.location not in self.settlement_par_pos:
+            return []
+        return [p for p in self.world.personnages
+                if p.location == perso.location and p.affiliation is None]
+
+    def recruter(self, cible_id: int) -> ResultatAction:
+        """Tente le recrutement via la couche d'actions (tirage semé)."""
+        if self.selected_id is None:
+            return ResultatAction(ok=False, erreur="aucun personnage sélectionné")
+        return recruter(self.world, self.action_rng, self.selected_id, cible_id)
+
     def finir_tour(self) -> None:
         finir_tour(self.world)
         self._rafraichir_destinations()  # les PA sont revenus
@@ -149,6 +186,9 @@ class CampaignRenderer:
             UI.button_width,
             UI.button_height,
         )
+        # Boutons « Recruter » du panneau de ville, reconstruits à chaque frame
+        # rendue : [(rect, id de la cible)].
+        self.boutons_recruter: List[Tuple[pygame.Rect, int]] = []
 
     def render_frame(
         self,
@@ -164,6 +204,7 @@ class CampaignRenderer:
         self._render_settlements(state, camera, hex_grid)
         self._render_persos(state, camera, hex_grid)
         self._render_top_panel(state, camera)
+        self._render_ville_panel(state)
         self._render_bottom_panel(state, hover_hex)
         self._render_message(message, message_timer)
 
@@ -281,6 +322,64 @@ class CampaignRenderer:
         texte = self.font.render("Fin de tour", True, UI.text_color)
         self.screen.blit(texte, texte.get_rect(center=self.end_turn_button_rect.center))
 
+    def _render_ville_panel(self, state: CampaignState) -> None:
+        """
+        Panneau de ville (embryon Phase 4) : visible quand le perso sélectionné
+        se tient sur un settlement où résident des recrutables. Les chances de
+        recrutement sont montrées en **libellé** (jamais un chiffre — même
+        esprit que la couche vrai/connu).
+        """
+        self.boutons_recruter = []
+        perso = state.perso_selectionne
+        recrues = state.recrutables_ici()
+        if perso is None or not recrues:
+            return
+
+        lieu = state.settlement_par_pos[perso.location]
+        largeur, ligne_h = 320, 52
+        x = self.screen_width - largeur - UI.button_margin
+        y = UI.top_panel_height + UI.button_height + 2 * UI.button_margin
+        hauteur = 34 + ligne_h * len(recrues)
+        panel = pygame.Rect(x, y, largeur, hauteur)
+        pygame.draw.rect(self.screen, UI.panel_bg_color, panel, border_radius=6)
+        pygame.draw.rect(self.screen, (90, 90, 110), panel, 2, border_radius=6)
+
+        titre = self.font.render(
+            f"{lieu.taille.value.capitalize()} de {lieu.nom}", True, UI.text_color
+        )
+        self.screen.blit(titre, (x + 10, y + 8))
+
+        mouse_pos = pygame.mouse.get_pos()
+        for i, recrue in enumerate(recrues):
+            ligne_y = y + 34 + i * ligne_h
+            nom = self.font.render(recrue.nom, True, (255, 215, 100))
+            self.screen.blit(nom, (x + 10, ligne_y))
+            avis = self.font.render(
+                f"recrutement {_libelle_chance(chance_recrutement(perso, recrue))}",
+                True, UI.hint_color,
+            )
+            self.screen.blit(avis, (x + 10, ligne_y + 20))
+
+            bouton = pygame.Rect(x + largeur - 130, ligne_y + 6, 120, 30)
+            actif = perso.pa_restants >= PA_COUT_RECRUTEMENT
+            if actif:
+                couleur = (80, 120, 80) if bouton.collidepoint(mouse_pos) else (60, 100, 60)
+            else:
+                couleur = (70, 70, 80)
+            pygame.draw.rect(self.screen, couleur, bouton, border_radius=5)
+            texte = self.font.render(
+                f"Recruter ({PA_COUT_RECRUTEMENT} PA)", True, UI.text_color
+            )
+            self.screen.blit(texte, texte.get_rect(center=bouton.center))
+            self.boutons_recruter.append((bouton, recrue.id))
+
+    def cible_recrutement_cliquee(self, pos: Tuple[int, int]) -> Optional[int]:
+        """Id de la recrue dont le bouton est sous ``pos``, sinon None."""
+        for rect, cible_id in self.boutons_recruter:
+            if rect.collidepoint(pos):
+                return cible_id
+        return None
+
     def _render_bottom_panel(self, state: CampaignState, hover_hex: Optional[HexCoord]) -> None:
         pygame.draw.rect(
             self.screen, UI.panel_bg_color,
@@ -379,6 +478,22 @@ def run_campaign(screen: pygame.Surface, config: dict) -> bool:
                 if renderer.is_end_turn_clicked(mouse_pos):
                     state.finir_tour()
                     continue
+
+                # Le panneau de ville est au-dessus de la carte : ses boutons
+                # priment sur le clic-hex.
+                cible_id = renderer.cible_recrutement_cliquee(mouse_pos)
+                if cible_id is not None:
+                    resultat = state.recruter(cible_id)
+                    cible = world.personnage(cible_id)
+                    if not resultat.ok:
+                        message = resultat.erreur
+                    elif resultat.reussite:
+                        message = f"{cible.nom} rejoint votre main !"
+                    else:
+                        message = f"{cible.nom} décline votre offre."
+                    message_timer = 2.5
+                    continue
+
                 clique = controller.hex_grid.pixel_to_hex(
                     mouse_pos[0], mouse_pos[1], camera.offset
                 ).to_tuple()

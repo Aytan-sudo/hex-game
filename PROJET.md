@@ -287,8 +287,10 @@ n'est jamais supprimé — il est encapsulé, puis réutilisé pour les bataille
   destin) et action **déplacer** (coût par terrain traversé), pur/headless + tests. Fait aussi
   (2026-07-18) : le **branchement UI** — mode **« Campagne »** du menu (`game/campaign_map.py`),
   sélection d'un perso de la main, destinations en surbrillance, déplacement consommant les PA,
-  fin de tour, settlements colorés par royaume. Reste : les actions suivantes (recruter,
-  convaincre… — avec la Phase 4 pour l'interface de ville).
+  fin de tour, settlements colorés par royaume. Fait aussi : action **recruter** (tirage semé :
+  Charisme vs exigence dérivée du calibre, infléchi par la Chance, borné 5-95 % ; l'échec coûte
+  les PA) + **panneau de ville minimal** (résidents recrutables, chances en libellé). Reste :
+  **convaincre** (settlements/royaumes — porté par la Phase 4 avec l'interface de ville complète).
 - **Phase 4 — Settlements & diplomatie.** Hiérarchie des villes, allégeance, conditions de
   ralliement, interface de ville.
 - **Phase 5 — Moteur narratif.** Événements + prophéties data-driven, révélation graduelle,
