@@ -70,7 +70,8 @@ hex-game/
 │   ├── heroes.py          # create_hero(), HERO_CLASSES
 │   ├── ai.py              # AIPlayer (stratégique), TacticalAI (combat)
 │   ├── map_generator.py   # MapGenerator, MapConfig
-│   ├── strategic_map.py   # StrategicGameState, StrategicRenderer
+│   ├── strategic_map.py   # StrategicGameState, StrategicRenderer (mode Wargame)
+│   ├── campaign_map.py    # CampaignState, CampaignRenderer, run_campaign (mode Campagne)
 │   ├── battle_resolver.py # BattleResolver (AUTO headless | TACTICAL fenêtré)
 │   ├── tactical_map.py    # TacticalBattle (logique pure), TacticalRenderer
 │   └── main.py            # Point d'entrée, MainMenu
@@ -88,8 +89,11 @@ hex-game/
 ## Flux d'exécution
 
 ```
-main.py → MainMenu.run()
-  └── run_strategic_game()
+main.py → MainMenu.run()  (option Mode : Campagne | Wargame)
+  ├── [Campagne — le pivot] run_campaign()
+  │     ├── generer_monde() → WorldState, puis demarrer_partie() (PA du tour 1)
+  │     └── CampaignState (sélection perso, destinations) → world/actions + world/turn
+  └── [Wargame — couche historique] run_strategic_game()
         ├── StrategicGameState (tours, sélection, animations, IA stratégique)
         └── [bataille] → _fight_battle() → BattleResolver.resolve()
               ├── mode TACTICAL → run_tactical_battle() (fenêtre)
@@ -219,6 +223,21 @@ def finir_tour(world)        # tour += 1, horloge_du_destin -= 1, redistribue le
 - Les actions suivantes (recruter, convaincre, gérer…) s'ajouteront sur la même forme :
   valider → appliquer → `ResultatAction`.
 
+**Volet UI (`game/campaign_map.py`, mode « Campagne » du menu)** — l'écran du pivot :
+
+```python
+class CampaignState     # sélection courante + destinations en surbrillance (sans Pygame, testable)
+class CampaignRenderer  # terrain, settlements colorés par royaume, losanges de la main, panneaux
+def run_campaign(screen, config)  # generer_monde → demarrer_partie → boucle
+```
+
+- `CampaignState` ne contient **aucune règle** : il ne fait qu'appeler `world/actions` /
+  `world/turn`. Clic gauche = sélectionner (re-clic = cycle entre cohabitants d'une case) ou
+  se déplacer vers un hex en surbrillance ; clic droit = désélectionner ; Espace/bouton = fin
+  de tour. Panneau bas : nom, `PA restants/max`, Vigueur en **label** (jamais un chiffre).
+- Seule la **main du joueur** est dessinée (les autres personnages vivent aux settlements,
+  interface de ville en Phase 4).
+
 ### IA (`game/ai.py`)
 
 ```python
@@ -328,6 +347,7 @@ Ne pas réintroduire de BFS faits-main.
 | Résolution de bataille | `battle_resolver.py` | `strategic_map.py`, `tactical_map.py` |
 | Personnage / génération | `world/character.py`, `world/worldgen.py` | — |
 | Boucle d'actions / tour | `world/actions.py`, `world/turn.py` | `world/character.py` (`pa_restants`) |
+| UI campagne | `game/campaign_map.py` | `game/main.py` (menu), `game/config.py` |
 | Aléa / RNG | `engine/rng.py` | tous les sous-systèmes semés |
 | IA stratégique | `ai.py` | `strategic_map.py` |
 | IA tactique | `ai.py` | `tactical_map.py` |

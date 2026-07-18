@@ -18,6 +18,7 @@ from engine.unit import Army, Hero
 from game.units import create_lancer, create_archer, create_cavalry, create_mage
 from game.heroes import create_hero
 from game.map_generator import MapConfig, MapGenerator
+from game.campaign_map import run_campaign
 from game.strategic_map import run_strategic_game
 from game.config import DEFAULT_GAME_CONFIG, UI, GameSpeed
 
@@ -184,6 +185,7 @@ class MainMenu:
         # UI state
         self.selected_option = 0
         self.options = [
+            ('mode', 'Mode', ['Campagne', 'Wargame']),
             ('map_width', 'Map Width', [50, 75, 100, 150, 200]),
             ('map_height', 'Map Height', [50, 75, 100, 150, 200]),
             ('player1_armies', 'Player 1 Armies', [1, 2, 3, 4, 5, 6]),
@@ -341,8 +343,12 @@ def run_game(screen: pygame.Surface, config: dict):
     """
     Run the main game loop.
 
-    Now uses the strategic map with tactical battles when armies meet.
+    Mode 'Campagne' (the pivot): character campaign on a generated WorldState.
+    Mode 'Wargame': the historical strategic map with tactical battles.
     """
+    if config.get('mode') == 'Campagne':
+        return run_campaign(screen, config)
+
     # Generate strategic map
     tiles = generate_test_map(
         config['map_width'],

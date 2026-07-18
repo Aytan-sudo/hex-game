@@ -175,6 +175,7 @@ PLAYER_COLORS = PlayerColors()
 
 # Default game configuration (for menu)
 DEFAULT_GAME_CONFIG = {
+    'mode': 'Campagne',   # 'Campagne' (pivot, PROJET.md) | 'Wargame' (couche historique)
     'map_width': 100,
     'map_height': 100,
     'player1_armies': 3,

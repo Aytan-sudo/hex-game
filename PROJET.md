@@ -284,8 +284,11 @@ n'est jamais supprimé — il est encapsulé, puis réutilisé pour les bataille
   « sélectionne armée → bouge » par « sélectionne perso → points d'action » (déplacer /
   recruter / convaincre…). Fait : **formule des PA** (`PA = 4 + Vigueur // 20`,
   `world/actions.py`), **moteur de tour** (`world/turn.py` : distribution des PA, horloge du
-  destin) et action **déplacer** (coût par terrain traversé), pur/headless + tests. Reste :
-  le **branchement UI** stratégique et les actions suivantes (recruter, convaincre…).
+  destin) et action **déplacer** (coût par terrain traversé), pur/headless + tests. Fait aussi
+  (2026-07-18) : le **branchement UI** — mode **« Campagne »** du menu (`game/campaign_map.py`),
+  sélection d'un perso de la main, destinations en surbrillance, déplacement consommant les PA,
+  fin de tour, settlements colorés par royaume. Reste : les actions suivantes (recruter,
+  convaincre… — avec la Phase 4 pour l'interface de ville).
 - **Phase 4 — Settlements & diplomatie.** Hiérarchie des villes, allégeance, conditions de
   ralliement, interface de ville.
 - **Phase 5 — Moteur narratif.** Événements + prophéties data-driven, révélation graduelle,
