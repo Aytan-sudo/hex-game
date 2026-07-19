@@ -88,17 +88,14 @@ def test_changer_d_acteur_via_la_colonne_des_presents():
     assert state.selected_id == autre_id
 
 
-def test_recruter_depuis_l_onglet_residents():
+def test_l_onglet_residents_est_informatif():
+    # L'écran de ville informe ; recruter se lance en mission depuis la carte
+    # (bouton Mission / touche M) — l'onglet n'a plus de bouton d'action.
     state, capitale, libre = _etat_en_ville()
     ecran = _ecran(state, capitale)
     ecran.render()  # onglet par défaut : résidents
-
-    rect, cible_id = next(
-        (r, cid) for r, cid in ecran.boutons_recruter if cid == libre.id
-    )
-    ecran.clic(rect.center)
-    assert libre.affiliation == 0
-    assert "rejoint votre main" in ecran.message
+    assert not hasattr(ecran, "boutons_recruter")
+    assert libre.affiliation is None  # rien ne se recrute d'un simple clic ici
 
 
 def test_convaincre_depuis_l_onglet_audience():

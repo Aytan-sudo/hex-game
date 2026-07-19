@@ -133,29 +133,46 @@ def test_recrutables_ici_liste_les_residents_libres():
     assert all(p.affiliation is None for p in state.recrutables_ici())
 
 
-def test_recruter_depuis_l_etat_fait_grossir_la_main():
+def test_mission_de_recrutement_depuis_l_etat():
+    # Le recrutement est désormais une mission : lancement depuis la carte,
+    # équipe indisponible, résolution à échéance par la fin de tour.
     monde = _monde_de_test()
     libre = _avec_recrutable(monde)
-    state = CampaignState(monde, action_rng=_RngForce(0.0))  # toujours gagnant
+    state = CampaignState(monde, action_rng=_RngForce(0.0))  # tirages gagnants
     state.clic_hex(_capitale_depart(monde))
-    taille_main = len(state.persos_joueur())
+    acteur_id = state.selected_id
 
-    resultat = state.recruter(libre.id)
-    assert resultat.ok and resultat.reussite
+    possible = next(p for p in state.missions_possibles_ici()
+                    if p.cible_id == libre.id)
+    resultat = state.lancer_mission(possible, [acteur_id])
+    assert resultat.ok
+    assert state.perso_selectionne is None                 # parti en mission
+    assert monde.personnage(acteur_id).mission_id is not None
+
+    # Un perso en mission n'est plus sélectionnable sur la carte.
+    _, perso = state.clic_hex(_capitale_depart(monde))
+    assert perso is None or perso.id != acteur_id
+
+    state.finir_tour()
+    resultats = state.finir_tour()                         # échéance (2 tours)
+    assert resultats and resultats[0].reussite
     assert libre.affiliation == 0
-    assert len(state.persos_joueur()) == taille_main + 1
-    assert libre not in state.recrutables_ici()  # plus recrutable
+    assert monde.personnage(acteur_id).mission_id is None  # libéré
 
 
-def test_recrutement_rate_ne_change_rien_a_la_main():
+def test_mission_ratee_ne_change_rien_a_la_main():
     monde = _monde_de_test()
     libre = _avec_recrutable(monde)
     state = CampaignState(monde, action_rng=_RngForce(0.999))  # perd toujours
     state.clic_hex(_capitale_depart(monde))
     taille_main = len(state.persos_joueur())
 
-    resultat = state.recruter(libre.id)
-    assert resultat.ok and resultat.reussite is False
+    possible = next(p for p in state.missions_possibles_ici()
+                    if p.cible_id == libre.id)
+    assert state.lancer_mission(possible, [state.selected_id]).ok
+    state.finir_tour()
+    resultats = state.finir_tour()
+    assert resultats and resultats[0].reussite is False
     assert libre.affiliation is None
     assert len(state.persos_joueur()) == taille_main
 

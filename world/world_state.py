@@ -9,11 +9,14 @@ génération, **headless** et sérialisable. Le moteur de jeu (Phase 3+) lit et 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import TYPE_CHECKING, Dict, List, Tuple
 
 from engine.tile import Tile
 from world.character import Character
 from world.settlement import Settlement, Royaume
+
+if TYPE_CHECKING:
+    from world.missions import Mission
 
 
 @dataclass
@@ -31,6 +34,12 @@ class WorldState:
     # Tempo de la partie.
     tour: int = 1
     horloge_du_destin: int = 60  # tours avant le déferlement (PROJET §1, §6)
+
+    # Missions en cours (world/missions.py) et compteur d'ids.
+    missions: List["Mission"] = field(default_factory=list)
+    prochaine_mission_id: int = 0
+    # Liens d'amitié : paire ordonnée (min, max) d'ids de persos -> affinité.
+    liens: Dict[Tuple[int, int], int] = field(default_factory=dict)
 
     def personnage(self, perso_id: int) -> Character:
         return self.personnages[perso_id]

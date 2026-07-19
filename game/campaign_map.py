@@ -33,6 +33,7 @@ from engine.hex_grid import HexCoord, HexGrid
 from engine.input_handler import CameraController
 from engine.rng import SeededRNG
 from game.config import INPUT, UI
+from game.mission_ui import run_missions
 from game.ville_ui import ROYAUME_PALETTE, libelle_disposition, run_ville
 from world.actions import (
     ResultatAction,
@@ -40,7 +41,12 @@ from world.actions import (
     deplacer,
     destinations_accessibles,
     points_action_max,
-    recruter,
+)
+from world.missions import (
+    MissionPossible,
+    ResultatMission,
+    lancer_mission,
+    missions_possibles,
 )
 from world.settlement import Royaume
 from world.character import Character, Trait, label
@@ -127,7 +133,8 @@ class CampaignState:
                 self._rafraichir_destinations()
             return ("deplacement", resultat)
 
-        persos = self.persos_en(pos)
+        # Les persos en mission sont indisponibles : pas sélectionnables.
+        persos = [p for p in self.persos_en(pos) if p.mission_id is None]
         if persos:
             ids = [p.id for p in persos]
             if self.selected_id in ids:
@@ -147,13 +154,24 @@ class CampaignState:
         return [p for p in self.world.personnages
                 if p.location == perso.location and p.affiliation is None]
 
-    def recruter(self, cible_id: int) -> ResultatAction:
-        """Tente le recrutement via la couche d'actions (tirage semé)."""
-        if self.selected_id is None:
+    def missions_possibles_ici(self) -> List[MissionPossible]:
+        """La panoplie de missions lançables depuis la case du perso sélectionné."""
+        perso = self.perso_selectionne
+        if perso is None or perso.location is None:
+            return []
+        return missions_possibles(self.world, perso.location)
+
+    def lancer_mission(
+        self, possible: MissionPossible, participants: List[int]
+    ) -> ResultatAction:
+        """Lance une mission depuis la case du perso sélectionné."""
+        perso = self.perso_selectionne
+        if perso is None:
             return ResultatAction(ok=False, erreur="aucun personnage sélectionné")
-        resultat = recruter(self.world, self.action_rng, self.selected_id, cible_id)
+        resultat = lancer_mission(self.world, possible.type, perso.location,
+                                  participants, possible.cible_id)
         if resultat.ok:
-            self._rafraichir_destinations()  # les PA ont bougé
+            self.deselectionner()  # l'équipe est partie en mission
         return resultat
 
     def royaume_ici(self) -> Optional[Royaume]:
@@ -174,9 +192,11 @@ class CampaignState:
             self._rafraichir_destinations()  # les PA ont bougé
         return resultat
 
-    def finir_tour(self) -> None:
-        finir_tour(self.world)
+    def finir_tour(self) -> List[ResultatMission]:
+        """Clôt le tour ; retourne les issues des missions résolues (annonces)."""
+        resultats = finir_tour(self.world, self.action_rng)
         self._rafraichir_destinations()  # les PA sont revenus
+        return resultats
 
 
 class CampaignRenderer:
@@ -194,9 +214,11 @@ class CampaignRenderer:
             UI.button_width,
             UI.button_height,
         )
-        # Bouton « Entrer » du résumé de ville, reconstruit à chaque frame
-        # rendue (l'interaction vit dans l'écran de ville, game/ville_ui.py).
+        # Boutons reconstruits à chaque frame rendue : « Entrer » du résumé de
+        # ville (l'interaction vit dans game/ville_ui.py) et « Mission » du
+        # panneau bas (la porte d'entrée du levier essentiel, game/mission_ui.py).
         self.bouton_entrer: Optional[pygame.Rect] = None
+        self.bouton_mission: Optional[pygame.Rect] = None
 
     def render_frame(
         self,
@@ -284,7 +306,10 @@ class CampaignRenderer:
             devant = state.perso_selectionne if state.perso_selectionne in persos else persos[0]
             rayon = int(camera.hex_size * 0.38)
             points = [(x, y - rayon), (x + rayon, y), (x, y + rayon), (x - rayon, y)]
-            pygame.draw.polygon(self.screen, UI.hero_gold_color, points)
+            # Losange grisé quand tout le monde ici est parti en mission.
+            en_mission = all(p.mission_id is not None for p in persos)
+            fond = (150, 150, 150) if en_mission else UI.hero_gold_color
+            pygame.draw.polygon(self.screen, fond, points)
             pygame.draw.polygon(self.screen, (30, 30, 40), points, 2)
 
             if devant is state.perso_selectionne:
@@ -306,14 +331,15 @@ class CampaignRenderer:
                          (0, 0, self.screen_width, UI.top_panel_height))
         monde = state.world
         tour = self.font.render(f"Tour {monde.tour}", True, UI.text_color)
-        horloge = self.font.render(
-            f"Horloge du destin : {monde.horloge_du_destin}", True, (255, 180, 120)
-        )
+        texte_horloge = f"Horloge du destin : {monde.horloge_du_destin}"
+        if monde.missions:
+            texte_horloge += f"  ·  Missions en cours : {len(monde.missions)}"
+        horloge = self.font.render(texte_horloge, True, (255, 180, 120))
         self.screen.blit(tour, (10, 8))
         self.screen.blit(horloge, (10, 28))
 
         hint = self.font.render(
-            "Clic: sélectionner/déplacer | Entrée: ville | Clic droit: désélectionner | Espace: fin de tour",
+            "Clic: sélectionner/déplacer | Entrée: ville | M: mission | Espace: fin de tour",
             True, UI.hint_color,
         )
         self.screen.blit(hint, (240, 18))
@@ -377,6 +403,10 @@ class CampaignRenderer:
         """Vrai si le bouton « Entrer » du résumé de ville est sous ``pos``."""
         return self.bouton_entrer is not None and self.bouton_entrer.collidepoint(pos)
 
+    def mission_clique(self, pos: Tuple[int, int]) -> bool:
+        """Vrai si le bouton « Mission » du panneau bas est sous ``pos``."""
+        return self.bouton_mission is not None and self.bouton_mission.collidepoint(pos)
+
     def _render_bottom_panel(self, state: CampaignState, hover_hex: Optional[HexCoord]) -> None:
         pygame.draw.rect(
             self.screen, UI.panel_bg_color,
@@ -384,6 +414,7 @@ class CampaignRenderer:
              self.screen_width, UI.bottom_panel_height),
         )
 
+        self.bouton_mission = None
         perso = state.perso_selectionne
         if perso is not None:
             vigueur = label(perso.caracteristiques[Trait.VIGUEUR])
@@ -394,6 +425,20 @@ class CampaignRenderer:
                 info += f" — à {lieu.nom}"
             surf = self.font.render(info, True, (255, 215, 100))
             self.screen.blit(surf, (10, self.screen_height - 52))
+
+            # La porte d'entrée des missions : depuis n'importe quelle case.
+            if perso.mission_id is None:
+                bouton = pygame.Rect(
+                    self.screen_width - 150,
+                    self.screen_height - UI.bottom_panel_height + 14, 135, 32,
+                )
+                survole = bouton.collidepoint(pygame.mouse.get_pos())
+                pygame.draw.rect(self.screen,
+                                 (120, 90, 150) if survole else (100, 70, 130),
+                                 bouton, border_radius=5)
+                texte = self.font.render("Mission (M)", True, UI.text_color)
+                self.screen.blit(texte, texte.get_rect(center=bouton.center))
+                self.bouton_mission = bouton
 
         if hover_hex and hover_hex.to_tuple() in state.world.tiles:
             pos = hover_hex.to_tuple()
@@ -476,10 +521,24 @@ def run_campaign(screen: pygame.Surface, config: dict) -> bool:
     dt = 0.0
 
     def fin_de_tour() -> None:
-        """Clôt le tour et déclenche le voile « le temps passe »."""
-        nonlocal transition_tour
-        state.finir_tour()
+        """Clôt le tour, annonce les missions résolues, déclenche le voile."""
+        nonlocal message, message_timer, transition_tour
+        resultats = state.finir_tour()
+        if resultats:
+            message = "  ·  ".join(r.message for r in resultats)
+            message_timer = 4.0
         transition_tour = TRANSITION_TOUR_S
+
+    def ouvrir_missions() -> bool:
+        """Ouvre le panneau de mission du perso sélectionné. False = quitter."""
+        nonlocal message, message_timer
+        perso = state.perso_selectionne
+        if perso is None or perso.location is None or perso.mission_id is not None:
+            return True
+        continuer, dernier = run_missions(screen, font, state, perso.location)
+        if dernier:
+            message, message_timer = dernier, 2.5
+        return continuer
 
     def entrer_en_ville() -> bool:
         """Ouvre l'écran de ville du perso sélectionné. False = quitter le jeu."""
@@ -515,16 +574,23 @@ def run_campaign(screen: pygame.Surface, config: dict) -> bool:
                 elif event.key == pygame.K_RETURN:
                     if not entrer_en_ville():
                         return False
+                elif event.key == pygame.K_m:
+                    if not ouvrir_missions():
+                        return False
 
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if renderer.is_end_turn_clicked(mouse_pos):
                     fin_de_tour()
                     continue
 
-                # Le résumé de ville est au-dessus de la carte : son bouton
-                # « Entrer » prime sur le clic-hex.
+                # Les boutons des panneaux sont au-dessus de la carte : ils
+                # priment sur le clic-hex.
                 if renderer.entrer_clique(mouse_pos):
                     if not entrer_en_ville():
+                        return False
+                    continue
+                if renderer.mission_clique(mouse_pos):
+                    if not ouvrir_missions():
                         return False
                     continue
 

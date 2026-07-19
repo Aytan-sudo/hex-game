@@ -35,7 +35,6 @@ import pygame
 from game.config import UI
 from world.actions import (
     PA_COUT_CONVAINCRE,
-    PA_COUT_RECRUTEMENT,
     chance_convaincre,
     chance_recrutement,
     condition_remplie,
@@ -133,7 +132,6 @@ class VilleScreen:
         # Zones cliquables, reconstruites à chaque rendu.
         self.rects_onglets: List[Tuple[pygame.Rect, str]] = []
         self.rects_presents: List[Tuple[pygame.Rect, int]] = []
-        self.boutons_recruter: List[Tuple[pygame.Rect, int]] = []
         self.bouton_convaincre: Optional[pygame.Rect] = None
 
     @property
@@ -153,11 +151,6 @@ class VilleScreen:
                 return
         if self.bouton_convaincre and self.bouton_convaincre.collidepoint(pos):
             self._agir_convaincre()
-            return
-        for rect, cible_id in self.boutons_recruter:
-            if rect.collidepoint(pos):
-                self._agir_recruter(cible_id)
-                return
 
     def _annonce(self, texte: str) -> None:
         self.message, self.message_timer = texte, 2.5
@@ -174,21 +167,11 @@ class VilleScreen:
         else:
             self._annonce(f"La disposition de {royaume.nom} s'améliore.")
 
-    def _agir_recruter(self, cible_id: int) -> None:
-        cible = self.state.world.personnage(cible_id)
-        resultat = self.state.recruter(cible_id)
-        if not resultat.ok:
-            self._annonce(resultat.erreur)
-        elif resultat.reussite:
-            self._annonce(f"{cible.nom} rejoint votre main !")
-        else:
-            self._annonce(f"{cible.nom} décline votre offre.")
-
     # --- rendu --------------------------------------------------------------
 
     def render(self) -> None:
         self.rects_onglets, self.rects_presents = [], []
-        self.boutons_recruter, self.bouton_convaincre = [], None
+        self.bouton_convaincre = None
 
         self.screen.fill(UI.screen_bg_color)
         self._render_resume()
@@ -242,28 +225,36 @@ class VilleScreen:
 
         y = self.HAUT + 40
         for perso in self.state.persos_en(self.lieu.position):
+            en_mission = perso.mission_id is not None
             rangee = pygame.Rect(6, y, self.COL - 12, 52)
             if perso is self.acteur:
                 pygame.draw.rect(self.screen, (55, 55, 75), rangee, border_radius=6)
                 pygame.draw.rect(self.screen, UI.selection_color, rangee, 2, border_radius=6)
 
             # Portrait placeholder : cercle doré + initiale (la banque de
-            # portraits réelle est au backlog worldgen).
+            # portraits réelle est au backlog worldgen). Grisé en mission.
             cx, cy = 28, y + 26
-            pygame.draw.circle(self.screen, UI.hero_gold_color, (cx, cy), 16)
+            teinte = (150, 150, 150) if en_mission else UI.hero_gold_color
+            pygame.draw.circle(self.screen, teinte, (cx, cy), 16)
             pygame.draw.circle(self.screen, (30, 30, 40), (cx, cy), 16, 2)
             initiale = self.font.render(perso.nom[0].upper(), True, (30, 30, 40))
             self.screen.blit(initiale, initiale.get_rect(center=(cx, cy)))
 
-            nom = self.font.render(perso.nom, True, _OR)
+            nom = self.font.render(perso.nom, True,
+                                   (170, 170, 170) if en_mission else _OR)
             self.screen.blit(nom, (52, y + 8))
-            pa = self.font.render(
-                f"PA {perso.pa_restants}/{points_action_max(perso)}",
-                True, UI.hint_color,
-            )
-            self.screen.blit(pa, (52, y + 28))
+            if en_mission:
+                etat = self.font.render("en mission", True, (150, 150, 150))
+            else:
+                etat = self.font.render(
+                    f"PA {perso.pa_restants}/{points_action_max(perso)}",
+                    True, UI.hint_color,
+                )
+            self.screen.blit(etat, (52, y + 28))
 
-            self.rects_presents.append((rangee, perso.id))
+            # Indisponible = pas sélectionnable comme acteur.
+            if not en_mission:
+                self.rects_presents.append((rangee, perso.id))
             y += 58
 
     def _render_barre_onglets(self) -> None:
@@ -333,18 +324,13 @@ class VilleScreen:
             connu = self.font.render(traits, True, UI.hint_color)
             self.screen.blit(connu, (zone.x + 14, y + 20))
 
+            # L'onglet informe ; l'action passe par une mission (carte, M).
             avis = self.font.render(
-                f"recrutement {libelle_chance(chance_recrutement(acteur, recrue))}",
+                f"recrutement {libelle_chance(chance_recrutement(acteur, recrue))}"
+                " — se lance en mission (M sur la carte)",
                 True, UI.hint_color,
             )
             self.screen.blit(avis, (zone.x + 14, y + 40))
-
-            # max() : sur un écran étroit, le bouton reste dans sa zone (il ne
-            # doit jamais chevaucher la colonne des présents).
-            bouton = pygame.Rect(max(zone.x + 8, zone.right - 144), y + 12, 130, 30)
-            self._bouton(bouton, f"Recruter ({PA_COUT_RECRUTEMENT} PA)",
-                         acteur.pa_restants >= PA_COUT_RECRUTEMENT)
-            self.boutons_recruter.append((bouton, recrue.id))
             y += 68
 
     def _contenu_audience(self, zone: pygame.Rect) -> None:

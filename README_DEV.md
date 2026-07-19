@@ -73,6 +73,7 @@ hex-game/
 │   ├── strategic_map.py   # StrategicGameState, StrategicRenderer (mode Wargame)
 │   ├── campaign_map.py    # CampaignState, CampaignRenderer, run_campaign (mode Campagne)
 │   ├── ville_ui.py        # VilleScreen, run_ville (écran de ville modal, amorce settlement_ui/)
+│   ├── mission_ui.py      # MissionScreen, run_missions (lancer une mission depuis la carte)
 │   ├── battle_resolver.py # BattleResolver (AUTO headless | TACTICAL fenêtré)
 │   ├── tactical_map.py    # TacticalBattle (logique pure), TacticalRenderer
 │   └── main.py            # Point d'entrée, MainMenu
@@ -84,7 +85,8 @@ hex-game/
     ├── world_state.py     # WorldState (sortie du worldgen, sérialisable)
     ├── worldgen.py        # generer_character / generer_roster / generer_monde
     ├── actions.py         # Phase 3 : formule des PA, action déplacer, destinations
-    └── turn.py            # Phase 3 : moteur de tour (distribution PA, horloge du destin)
+    ├── missions.py        # Phase 4→5 : missions multi-tours, tirage collectif, liens d'amitié
+    └── turn.py            # Phase 3 : moteur de tour (PA, horloge, avancement des missions)
 ```
 
 ## Flux d'exécution
@@ -94,7 +96,8 @@ main.py → MainMenu.run()  (option Mode : Campagne | Wargame)
   ├── [Campagne — le pivot] run_campaign()
   │     ├── generer_monde() → WorldState, puis demarrer_partie() (PA du tour 1)
   │     ├── CampaignState (sélection perso, destinations) → world/actions + world/turn
-  │     └── [en ville] → run_ville() (écran modal, Échap pour revenir)
+  │     ├── [en ville] → run_ville() (écran modal, Échap pour revenir)
+  │     └── [bouton Mission / M] → run_missions() (panoplie de la case, équipe, lancer)
   └── [Wargame — couche historique] run_strategic_game()
         ├── StrategicGameState (tours, sélection, animations, IA stratégique)
         └── [bataille] → _fight_battle() → BattleResolver.resolve()
@@ -219,7 +222,16 @@ def condition_remplie(world, condition) -> bool    # un membre de la main porte 
 
 # world/turn.py
 def demarrer_partie(world)   # distribue les PA initiaux d'un monde fraîchement généré
-def finir_tour(world)        # tour += 1, horloge -= 1, revérifie les ralliements, redistribue les PA
+def finir_tour(world, rng=None) -> [ResultatMission]  # tour += 1, horloge -= 1, avance/résout les
+                             # missions, revérifie les ralliements, redistribue les PA (0 si en mission)
+
+# world/missions.py — LE levier d'action des persos sur le monde (à terme le cœur du jeu)
+def missions_possibles(world, pos)   # la panoplie de la case (une ville en offre plus)
+def lancer_mission(world, type, pos, participants, cible_id=None)  # équipe 1..EQUIPE_MAX,
+                                     # PA restants consommés, participants indisponibles
+def avancer_missions(world, rng=None)  # décrémente ; à échéance : tirage collectif + effets
+def chance_mission(world, mission)   # porteur (meilleur TRAIT_PORTEUR) + soutien + affinité
+def affinite(world, a, b)            # liens d'amitié : +1/paire par mission vécue ensemble
 ```
 
 - **Se déplacer est une action** (PROJET §4) : le coût est la somme des
@@ -241,8 +253,14 @@ def finir_tour(world)        # tour += 1, horloge -= 1, revérifie les ralliemen
 - Les refus (hors carte, infranchissable, PA insuffisants) renvoient un
   `ResultatAction(ok=False, erreur=…)` **sans modifier l'état** ; `cout`/`chemin` restent
   renseignés quand ils sont calculables, pour l'affichage.
-- Les actions suivantes (recruter, convaincre, gérer…) s'ajouteront sur la même forme :
-  valider → appliquer → `ResultatAction`.
+- **Le recrutement se joue en mission** (2 tours, `DUREE_RECRUTEMENT`) : l'action instantanée
+  `recruter` reste dans `world/actions.py` (moteur, testée) mais l'UI passe par
+  `world/missions.py` — son tirage devient la base du **tirage collectif** (porteur = meilleur
+  Charisme, + soutien des coéquipiers, + affinité). L'échec soude quand même l'équipe
+  (`liens` : +1 par paire), embryon du système de compagnons (Phase 5 : complémentarité,
+  rancunes, événements).
+- Les archétypes suivants (espionnage, assassinat, vol de relique…) et les missions à
+  objectif lointain s'ajouteront dans `missions.py` sur le même modèle positionnel.
 
 **Volet UI (`game/campaign_map.py`, mode « Campagne » du menu)** — l'écran du pivot :
 
@@ -259,10 +277,17 @@ def run_campaign(screen, config)  # generer_monde → demarrer_partie → boucle
   Espace/bouton = fin de tour, qui affiche un **voile « Tour N »** s'estompant
   (`render_transition_tour`) pour marquer le passage du temps. Panneau bas : nom,
   `PA restants/max`, Vigueur en **label** (jamais un chiffre).
-- Seule la **main du joueur** est dessinée (les autres personnages vivent aux settlements).
+- Seule la **main du joueur** est dessinée (les autres personnages vivent aux settlements) ;
+  un losange **grisé** = tout le monde sur cette case est parti en mission (indisponible,
+  non sélectionnable).
 - **Résumé de ville** : un perso sélectionné posé sur un settlement voit un petit panneau
   (lieu, royaume, disposition en libellé, nb de résidents) avec un bouton **« Entrer »**
-  (ou touche Entrée) qui ouvre l'écran de ville. Le bouton prime sur le clic-hex.
+  (ou touche Entrée) qui ouvre l'écran de ville. Les boutons priment sur le clic-hex.
+- **Bouton « Mission » (M)** dans le panneau bas, sur n'importe quelle case : ouvre
+  `game/mission_ui.py` — la **panoplie de la case** s'affiche, on compose l'équipe parmi les
+  présents disponibles (l'ouvreur embarque d'office), estimation collective en libellé,
+  Lancer. Les issues des missions résolues sont annoncées à la fin de tour, avec le compteur
+  « Missions en cours » dans le panneau haut.
 
 **Écran de ville (`game/ville_ui.py`)** — l'« interface dimensionnée par la taille » (PROJET
 §4), modal au-dessus de la carte (Échap pour sortir), amorce de la couche `settlement_ui/`
@@ -396,6 +421,7 @@ Ne pas réintroduire de BFS faits-main.
 | Boucle d'actions / tour | `world/actions.py`, `world/turn.py` | `world/character.py` (`pa_restants`) |
 | UI campagne | `game/campaign_map.py` | `game/main.py` (menu), `game/config.py` |
 | Interface de ville | `game/ville_ui.py` | `game/campaign_map.py`, `world/settlement.py` (`particularites`) |
+| Missions / amitié | `world/missions.py` | `game/mission_ui.py`, `world/turn.py`, `world/world_state.py` (`liens`) |
 | Aléa / RNG | `engine/rng.py` | tous les sous-systèmes semés |
 | IA stratégique | `ai.py` | `strategic_map.py` |
 | IA tactique | `ai.py` | `tactical_map.py` |

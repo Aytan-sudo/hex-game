@@ -130,6 +130,14 @@ missions au worldgen (cf. §5.7).
 - Actions typiques : **se déplacer, recruter, convaincre** (settlement / royaume), **gérer**
   une ville, **assassiner** une cible, engager un **duel**, **consulter** (cf. divineresse §5.1),
   accomplir une **mission** liée à un événement / une prophétie.
+- **Les missions sont le levier essentiel** de l'action des personnages sur le monde (à terme
+  le cœur du jeu). Une mission se lance **depuis une case** (bouton Mission — la panoplie
+  dépend du lieu, une ville en offre plus), avec une **équipe** (1-3) qui devient
+  **indisponible** plusieurs tours ; l'issue est un **tirage collectif** (porteur + soutien +
+  **liens d'amitié**, lesquels se renforcent à chaque mission vécue ensemble — embryon du
+  système de compagnons). Le recrutement est la première mission (2 tours) ; assassinat,
+  espionnage, vol de relique et **missions à objectif lointain** (« va voir si X est
+  prisonnier là-bas et sauve-le ») suivront (Phase 5).
 - Un personnage dans une ville ouvre une **interface d'interaction** dimensionnée par la taille
   de la ville.
 - **Batailles intermédiaires** : affrontements contre les sbires de l'Ombre — sert de terrain
@@ -314,7 +322,10 @@ n'est jamais supprimé — il est encapsulé, puis réutilisé pour les bataille
   **décorrélé de la taille**, semé vide jusqu'à la Phase 5). Reste : la gestion de ville,
   d'autres **sources de renom** (guerrier/mage/royaute — Phases 5-6) pour rendre toutes les
   conditions atteignables, et en polish les **portraits** sur les présents (banque de
-  portraits, backlog worldgen).
+  portraits, backlog worldgen). Fait aussi (2026-07-19, retours du premier playtest) :
+  **missions multi-tours** (`world/missions.py` + panneau `game/mission_ui.py`, cf. §4) — le
+  recrutement en est la première (2 tours, équipe 1-3, tirage collectif, **liens d'amitié**) ;
+  voile visuel de fin de tour ; empilement de la main corrigé.
 - **Phase 5 — Moteur narratif.** Événements + prophéties data-driven, révélation graduelle,
   horloge du destin, l'ennemi « Metteur en scène ».
 - **Phase 6 — Bataille finale.** Rebrancher le tactique comme climax.
