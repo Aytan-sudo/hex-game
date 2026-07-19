@@ -72,6 +72,7 @@ hex-game/
 │   ├── map_generator.py   # MapGenerator, MapConfig
 │   ├── strategic_map.py   # StrategicGameState, StrategicRenderer (mode Wargame)
 │   ├── campaign_map.py    # CampaignState, CampaignRenderer, run_campaign (mode Campagne)
+│   ├── ville_ui.py        # VilleScreen, run_ville (écran de ville modal, amorce settlement_ui/)
 │   ├── battle_resolver.py # BattleResolver (AUTO headless | TACTICAL fenêtré)
 │   ├── tactical_map.py    # TacticalBattle (logique pure), TacticalRenderer
 │   └── main.py            # Point d'entrée, MainMenu
@@ -92,7 +93,8 @@ hex-game/
 main.py → MainMenu.run()  (option Mode : Campagne | Wargame)
   ├── [Campagne — le pivot] run_campaign()
   │     ├── generer_monde() → WorldState, puis demarrer_partie() (PA du tour 1)
-  │     └── CampaignState (sélection perso, destinations) → world/actions + world/turn
+  │     ├── CampaignState (sélection perso, destinations) → world/actions + world/turn
+  │     └── [en ville] → run_ville() (écran modal, Échap pour revenir)
   └── [Wargame — couche historique] run_strategic_game()
         ├── StrategicGameState (tours, sélection, animations, IA stratégique)
         └── [bataille] → _fight_battle() → BattleResolver.resolve()
@@ -227,9 +229,9 @@ def finir_tour(world)        # tour += 1, horloge -= 1, revérifie les ralliemen
   reussite=False`). Recrutée, la cible passe `affiliation=0` — son **allégeance secrète ne
   change pas** (les traîtres se recrutent comme les autres). Le RNG est **propagé** (flux
   `derive("actions")` du seed du monde, injectable en test).
-- **Convaincre** (Phase 4) : depuis un settlement du royaume ciblé, coût
-  `PA_COUT_CONVAINCRE` (3). Un succès fait monter la **disposition** de
-  `GAIN_DISPOSITION[taille]` (4→12 : une capitale offre une meilleure audience), forge le
+- **Convaincre** (Phase 4) : depuis un settlement **village ou plus** du royaume ciblé (un
+  campement n'offre aucune audience), coût `PA_COUT_CONVAINCRE` (3). Un succès fait monter la
+  **disposition** de `GAIN_DISPOSITION[taille]` (6→12 : une capitale offre une meilleure audience), forge le
   renom de **diplomate** de l'émissaire et l'estime du royaume (`grand_livre`). Le
   **ralliement** (`rallie=True`) exige disposition pleine (`SEUIL_RALLIEMENT`) **et** les
   conditions semées au worldgen (renom dans un domaine, porté par la main) ; il est revérifié
@@ -255,12 +257,30 @@ def run_campaign(screen, config)  # generer_monde → demarrer_partie → boucle
   se déplacer vers un hex en surbrillance ; clic droit = désélectionner ; Espace/bouton = fin
   de tour. Panneau bas : nom, `PA restants/max`, Vigueur en **label** (jamais un chiffre).
 - Seule la **main du joueur** est dessinée (les autres personnages vivent aux settlements).
-- **Panneau de ville** (interface d'interaction, Phase 4 en cours) : un perso sélectionné
-  posé sur un settlement voit un **bloc diplomatie** — royaume, disposition en libellé
-  (`hostile / méfiante / hésitante / réceptive / presque acquise`), condition de ralliement
-  et bouton `Convaincre (3 PA)`, ou « ralliée à la coalition ! » — puis les résidents
-  recrutables, chacun avec un libellé de chances (`difficile / incertain / favorable` —
-  jamais un chiffre) et un bouton `Recruter (2 PA)`. Les boutons priment sur le clic-hex.
+- **Résumé de ville** : un perso sélectionné posé sur un settlement voit un petit panneau
+  (lieu, royaume, disposition en libellé, nb de résidents) avec un bouton **« Entrer »**
+  (ou touche Entrée) qui ouvre l'écran de ville. Le bouton prime sur le clic-hex.
+
+**Écran de ville (`game/ville_ui.py`)** — l'« interface dimensionnée par la taille » (PROJET
+§4), modal au-dessus de la carte (Échap pour sortir), amorce de la couche `settlement_ui/`
+cible. Trois cadres :
+
+```python
+def onglets_du_lieu(lieu) -> list      # l'existence des onglets dépend du lieu
+class VilleScreen                      # résumé + présents + onglets ; zones cliquables par frame
+def run_ville(screen, font, state, lieu) -> (continuer, dernier_message)   # boucle modale
+```
+
+- **Résumé** (bandeau) : identité du lieu, royaume, disposition/ralliement, condition.
+- **Présents** (colonne persistante) : les membres de la main sur place — le surligné est
+  l'**acteur** de toutes les actions ; en changer recalcule les libellés de chance. Portrait
+  placeholder (cercle + initiale) en attendant la banque de portraits (backlog).
+- **Onglets** : Résidents (toujours ; labels vrai/connu de 3 traits + `Recruter`), Audience
+  (village et + ; **Cour royale** à la capitale ; `Convaincre`), Garnison (bourgade et +),
+  **Spécial** (si `Settlement.particularites` non vide — persos particuliers / histoires,
+  décorrélé de la taille, semé vide jusqu'à la Phase 5). Raccourcis 1-4.
+- Ce module héberge le vocabulaire visuel partagé (`ROYAUME_PALETTE`, `libelle_chance`,
+  `libelle_disposition`) — importé par `campaign_map`, jamais l'inverse (pas de cycle).
 
 ### IA (`game/ai.py`)
 
@@ -372,6 +392,7 @@ Ne pas réintroduire de BFS faits-main.
 | Personnage / génération | `world/character.py`, `world/worldgen.py` | — |
 | Boucle d'actions / tour | `world/actions.py`, `world/turn.py` | `world/character.py` (`pa_restants`) |
 | UI campagne | `game/campaign_map.py` | `game/main.py` (menu), `game/config.py` |
+| Interface de ville | `game/ville_ui.py` | `game/campaign_map.py`, `world/settlement.py` (`particularites`) |
 | Aléa / RNG | `engine/rng.py` | tous les sous-systèmes semés |
 | IA stratégique | `ai.py` | `strategic_map.py` |
 | IA tactique | `ai.py` | `tactical_map.py` |

@@ -53,6 +53,12 @@ class Settlement:
     taille: TailleSettlement
     royaume_id: Optional[int] = None
     force_armee: int = 0
+    # Particularités du lieu (onglet « Spécial » de l'interface de ville) :
+    # persos particuliers / histoires spécifiques (divineresse, lieu de
+    # prophétie, artefact…). Décorrélées de la taille — la chose la plus
+    # importante du monde peut se nicher dans un campement perdu. Semées
+    # vides aujourd'hui ; remplies par le worldgen/le narratif (Phase 5).
+    particularites: List[str] = field(default_factory=list)
 
 
 @dataclass

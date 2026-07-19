@@ -256,12 +256,22 @@ def test_convaincre_reussi_fait_monter_disposition_et_renom():
 
 
 def test_convaincre_audience_pese_selon_la_taille():
-    petit, rng = _monde_diplomatie(0.0, taille=TailleSettlement.CAMPEMENT)
+    petit, rng = _monde_diplomatie(0.0, taille=TailleSettlement.VILLAGE)
     grand, _ = _monde_diplomatie(0.0, taille=TailleSettlement.CAPITALE)
     convaincre(petit, rng, 0, 0)
     convaincre(grand, rng, 0, 0)
-    assert petit.royaume(0).disposition == 50 + GAIN_DISPOSITION[TailleSettlement.CAMPEMENT]
+    assert petit.royaume(0).disposition == 50 + GAIN_DISPOSITION[TailleSettlement.VILLAGE]
     assert grand.royaume(0).disposition == 50 + GAIN_DISPOSITION[TailleSettlement.CAPITALE]
+
+
+def test_convaincre_refuse_dans_un_campement():
+    # Un campement n'offre aucune audience (l'interface de ville n'y montre
+    # d'ailleurs pas l'onglet) : refus sans PA dépensés.
+    monde, rng = _monde_diplomatie(0.0, taille=TailleSettlement.CAMPEMENT)
+    resultat = convaincre(monde, rng, 0, 0)
+    assert not resultat.ok and "campement" in resultat.erreur
+    assert monde.personnage(0).pa_restants == 6
+    assert monde.royaume(0).disposition == 50
 
 
 def test_convaincre_echec_coute_les_pa_sans_rien_changer():

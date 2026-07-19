@@ -190,16 +190,6 @@ def test_render_frame_headless():
     grid = HexGrid(hex_size=camera.hex_size, pointy_top=True)
     renderer.render_frame(state, camera, grid, hover_hex=None,
                           message="test", message_timer=1.0)
-    # Les boutons « Recruter » du panneau sont bien exposés au clic.
-    assert renderer.boutons_recruter
-    assert renderer.cible_recrutement_cliquee(
-        renderer.boutons_recruter[0][0].center
-    ) == renderer.boutons_recruter[0][1]
-    # Royaume de départ rallié : pas de bouton « Convaincre »…
-    assert renderer.bouton_convaincre is None
-    # …mais il apparaît chez un royaume à convaincre.
-    monde.royaume(0).rallie = False
-    renderer.render_frame(state, camera, grid, hover_hex=None,
-                          message="", message_timer=0.0)
-    assert renderer.bouton_convaincre is not None
-    assert renderer.convaincre_clique(renderer.bouton_convaincre.center)
+    # Le résumé de ville expose son bouton « Entrer » au clic.
+    assert renderer.bouton_entrer is not None
+    assert renderer.entrer_clique(renderer.bouton_entrer.center)

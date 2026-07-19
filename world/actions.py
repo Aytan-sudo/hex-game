@@ -59,7 +59,7 @@ PA_COUT_RECRUTEMENT: int = 2
 PA_COUT_CONVAINCRE: int = 3
 SEUIL_RALLIEMENT: int = 100          # disposition à atteindre pour rallier
 GAIN_DISPOSITION = {                  # l'audience pèse selon la taille du lieu
-    TailleSettlement.CAMPEMENT: 4,
+    # Pas de campement : personne à qui y plaider (l'audience commence au village).
     TailleSettlement.VILLAGE: 6,
     TailleSettlement.BOURGADE: 8,
     TailleSettlement.CAPITALE: 12,
@@ -256,7 +256,8 @@ def convaincre(
 ) -> ResultatAction:
     """
     Plaide la cause de la coalition auprès d'un royaume, depuis l'un de ses
-    settlements. Coûte ``PA_COUT_CONVAINCRE``, tirage réussi ou non. Un succès
+    settlements de taille **village ou plus** (un campement n'offre aucune
+    audience). Coûte ``PA_COUT_CONVAINCRE``, tirage réussi ou non. Un succès
     fait monter la **disposition** (d'autant plus que le lieu est grand — une
     capitale offre une meilleure audience qu'un campement), forge le **renom de
     diplomate** de l'émissaire et l'estime du royaume à son égard, puis vérifie
@@ -272,6 +273,8 @@ def convaincre(
 
     if lieu is None:
         return ResultatAction(ok=False, erreur="il faut être dans un settlement du royaume")
+    if lieu.taille is TailleSettlement.CAMPEMENT:
+        return ResultatAction(ok=False, erreur="personne à qui plaider dans un campement")
     if royaume.rallie:
         return ResultatAction(ok=False, erreur="déjà rallié à la coalition")
     if emissaire.pa_restants < PA_COUT_CONVAINCRE:

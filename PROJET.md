@@ -304,10 +304,17 @@ n'est jamais supprimé — il est encapsulé, puis réutilisé pour les bataille
   **convaincre** (`world/actions.py` : tirage Charisme/Chance, gain de disposition selon la
   **taille** du lieu, renom de diplomate + estime du royaume au grand livre), **ralliement**
   (disposition pleine ET conditions remplies par la main, revérifié en fin de tour ; le royaume
-  de départ est acquis d'office) et **bloc diplomatie** du panneau de ville (disposition et
-  conditions en libellés). Reste : l'interface de ville **dimensionnée par la taille**, la
-  gestion de ville, et d'autres **sources de renom** (guerrier/mage/royaute — Phases 5-6) pour
-  rendre toutes les conditions atteignables.
+  de départ est acquis d'office). Fait aussi : l'**interface de ville** (`game/ville_ui.py`),
+  écran modal à **trois cadres** — résumé du lieu, **présents** (le surligné est l'*acteur*,
+  les chances se recalculent quand on en change) et **onglets dont l'existence dépend du
+  lieu** : Résidents (toujours, avec labels vrai/connu), Audience (**village et plus** — un
+  campement n'offre aucune audience ; « Cour royale » à la capitale), Garnison (bourgade et
+  plus), **Spécial** (emplacement *générique* pour persos particuliers / histoires
+  spécifiques — divineresse, lieu de prophétie… — porté par `Settlement.particularites`,
+  **décorrélé de la taille**, semé vide jusqu'à la Phase 5). Reste : la gestion de ville,
+  d'autres **sources de renom** (guerrier/mage/royaute — Phases 5-6) pour rendre toutes les
+  conditions atteignables, et en polish les **portraits** sur les présents (banque de
+  portraits, backlog worldgen).
 - **Phase 5 — Moteur narratif.** Événements + prophéties data-driven, révélation graduelle,
   horloge du destin, l'ennemi « Metteur en scène ».
 - **Phase 6 — Bataille finale.** Rebrancher le tactique comme climax.
