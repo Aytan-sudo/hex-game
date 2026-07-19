@@ -6,11 +6,15 @@ pilote bien la couche d'actions pure, et le rendu tourne headless (SDL dummy).
 import pygame
 
 from engine.camera import Camera
-from engine.hex_grid import HexGrid
+from engine.hex_grid import HexCoord, HexGrid
 from engine.rng import SeededRNG
+from engine.tile import Tile
 from game.campaign_map import CampaignRenderer, CampaignState
+from game.terrain import TerrainType
 from world.actions import destinations_accessibles, points_action_max
+from world.character import Trait, nouveau_character
 from world.turn import demarrer_partie
+from world.world_state import WorldState
 from world.worldgen import WorldGenConfig, generer_monde
 
 
@@ -156,6 +160,30 @@ def test_recrutement_rate_ne_change_rien_a_la_main():
     assert len(state.persos_joueur()) == taille_main
 
 
+def test_on_peut_rejoindre_une_case_occupee_par_la_main():
+    # Le déplacement prime sur la sélection : une ville héberge toute la main,
+    # cliquer une case atteignable occupée par un des nôtres doit s'y rendre
+    # (le re-clic sur place cycle ensuite entre les cohabitants).
+    tiles = {(q, 0): Tile(position=HexCoord(q, 0), base_terrain=TerrainType.PLAINS)
+             for q in range(4)}
+    a = nouveau_character(0, "A", valeurs={Trait.VIGUEUR: 40},
+                          location=(0, 0), affiliation=0)
+    b = nouveau_character(1, "B", valeurs={Trait.VIGUEUR: 40},
+                          location=(2, 0), affiliation=0)
+    monde = WorldState(seed=0, tiles=tiles, personnages=[a, b],
+                       settlements=[], royaumes=[])
+    demarrer_partie(monde)
+    state = CampaignState(monde)
+    state.selectionner(0)
+
+    action, resultat = state.clic_hex((2, 0))   # case occupée par B, atteignable
+    assert action == "deplacement" and resultat.ok
+    assert a.location == (2, 0) == b.location   # cohabitation
+
+    action, _ = state.clic_hex((2, 0))          # re-clic sur place : cycle
+    assert action == "selection"
+
+
 # --- Diplomatie (bloc royaume du panneau) -----------------------------------
 
 def test_royaume_ici_et_convaincre():
@@ -193,3 +221,5 @@ def test_render_frame_headless():
     # Le résumé de ville expose son bouton « Entrer » au clic.
     assert renderer.bouton_entrer is not None
     assert renderer.entrer_clique(renderer.bouton_entrer.center)
+    # Le voile de fin de tour se dessine sans erreur (fumée).
+    renderer.render_transition_tour(monde, progression=0.5)

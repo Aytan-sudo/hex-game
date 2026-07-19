@@ -253,9 +253,12 @@ def run_campaign(screen, config)  # generer_monde → demarrer_partie → boucle
 ```
 
 - `CampaignState` ne contient **aucune règle** : il ne fait qu'appeler `world/actions` /
-  `world/turn`. Clic gauche = sélectionner (re-clic = cycle entre cohabitants d'une case) ou
-  se déplacer vers un hex en surbrillance ; clic droit = désélectionner ; Espace/bouton = fin
-  de tour. Panneau bas : nom, `PA restants/max`, Vigueur en **label** (jamais un chiffre).
+  `world/turn`. Clic gauche : le **déplacement prime** — un perso sélectionné rejoint toute
+  case en surbrillance, y compris occupée par la main (une ville héberge tout le monde) ;
+  sinon sélection (re-clic sur place = cycle entre cohabitants). Clic droit = désélectionner ;
+  Espace/bouton = fin de tour, qui affiche un **voile « Tour N »** s'estompant
+  (`render_transition_tour`) pour marquer le passage du temps. Panneau bas : nom,
+  `PA restants/max`, Vigueur en **label** (jamais un chiffre).
 - Seule la **main du joueur** est dessinée (les autres personnages vivent aux settlements).
 - **Résumé de ville** : un perso sélectionné posé sur un settlement voit un petit panneau
   (lieu, royaume, disposition en libellé, nb de résidents) avec un bouton **« Entrer »**

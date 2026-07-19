@@ -49,6 +49,9 @@ from world.turn import demarrer_partie, finir_tour
 from world.world_state import WorldState
 from world.worldgen import WorldGenConfig, generer_monde
 
+# Durée (s) du voile « le temps passe » affiché à chaque fin de tour.
+TRANSITION_TOUR_S = 1.2
+
 # Rayon du marqueur de settlement, en fraction de la taille d'hex.
 _RAYON_PAR_TAILLE = {
     TailleSettlement.CAMPEMENT: 0.22,
@@ -109,12 +112,21 @@ class CampaignState:
 
     def clic_hex(self, pos: Tuple[int, int]) -> Tuple[str, object]:
         """
-        Clic gauche sur un hex. Retourne (``"selection"``, perso) si un
-        personnage du joueur s'y trouve (re-clic = cycle entre cohabitants),
-        (``"deplacement"``, ``ResultatAction``) si la case est une destination
-        du perso sélectionné, (``"rien"``, None) sinon — la sélection est
+        Clic gauche sur un hex. Le **déplacement prime** : si un perso est
+        sélectionné et la case atteignable, il s'y rend — y compris quand
+        elle est occupée par d'autres membres de la main (une ville héberge
+        tout le monde) ; la sélection des occupants se fait ensuite (re-clic
+        sur place = cycle). Sinon : (``"selection"``, perso) si un personnage
+        du joueur s'y trouve, (``"rien"``, None) autrement — la sélection est
         conservée (la désélection passe par le clic droit).
         """
+        perso = self.perso_selectionne
+        if perso is not None and pos in self.destinations and pos != perso.location:
+            resultat = deplacer(self.world, self.selected_id, pos)
+            if resultat.ok:
+                self._rafraichir_destinations()
+            return ("deplacement", resultat)
+
         persos = self.persos_en(pos)
         if persos:
             ids = [p.id for p in persos]
@@ -124,12 +136,6 @@ class CampaignState:
                 suivant = ids[0]
             self.selectionner(suivant)
             return ("selection", self.perso_selectionne)
-
-        if self.selected_id is not None and pos in self.destinations:
-            resultat = deplacer(self.world, self.selected_id, pos)
-            if resultat.ok:
-                self._rafraichir_destinations()
-            return ("deplacement", resultat)
 
         return ("rien", None)
 
@@ -179,6 +185,7 @@ class CampaignRenderer:
     def __init__(self, screen: pygame.Surface, font: pygame.font.Font):
         self.screen = screen
         self.font = font
+        self.gros_font = pygame.font.Font(None, 72)  # « Tour N » du voile
         self.screen_width = screen.get_width()
         self.screen_height = screen.get_height()
         self.end_turn_button_rect = pygame.Rect(
@@ -399,6 +406,29 @@ class CampaignRenderer:
             surf = self.font.render(texte, True, UI.hint_color)
             self.screen.blit(surf, (10, self.screen_height - 30))
 
+    def render_transition_tour(self, monde: WorldState, progression: float) -> None:
+        """
+        Voile « le temps passe » après une fin de tour : la carte s'assombrit
+        d'un coup puis réapparaît (``progression`` 1 → 0), avec le numéro du
+        nouveau tour et l'horloge — rien d'autre ne montrerait que le monde a
+        avancé.
+        """
+        alpha = int(210 * max(0.0, min(1.0, progression)))
+        voile = pygame.Surface((self.screen_width, self.screen_height))
+        voile.set_alpha(alpha)
+        voile.fill((8, 8, 16))
+        self.screen.blit(voile, (0, 0))
+
+        centre_x, centre_y = self.screen_width // 2, self.screen_height // 2
+        titre = self.gros_font.render(f"Tour {monde.tour}", True, UI.text_color)
+        titre.set_alpha(alpha)
+        self.screen.blit(titre, titre.get_rect(center=(centre_x, centre_y - 24)))
+        sous = self.font.render(
+            f"Horloge du destin : {monde.horloge_du_destin}", True, (255, 180, 120)
+        )
+        sous.set_alpha(alpha)
+        self.screen.blit(sous, sous.get_rect(center=(centre_x, centre_y + 26)))
+
     def _render_message(self, message: str, timer: float) -> None:
         if timer > 0 and message:
             surf = self.font.render(message, True, (255, 200, 100))
@@ -442,7 +472,14 @@ def run_campaign(screen: pygame.Surface, config: dict) -> bool:
     clock = pygame.time.Clock()
     hover_hex: Optional[HexCoord] = None
     message, message_timer = "", 0.0
+    transition_tour = 0.0  # secondes restantes du voile de fin de tour
     dt = 0.0
+
+    def fin_de_tour() -> None:
+        """Clôt le tour et déclenche le voile « le temps passe »."""
+        nonlocal transition_tour
+        state.finir_tour()
+        transition_tour = TRANSITION_TOUR_S
 
     def entrer_en_ville() -> bool:
         """Ouvre l'écran de ville du perso sélectionné. False = quitter le jeu."""
@@ -474,14 +511,14 @@ def run_campaign(screen: pygame.Surface, config: dict) -> bool:
                 if event.key == pygame.K_ESCAPE:
                     return True
                 elif event.key == pygame.K_SPACE:
-                    state.finir_tour()
+                    fin_de_tour()
                 elif event.key == pygame.K_RETURN:
                     if not entrer_en_ville():
                         return False
 
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if renderer.is_end_turn_clicked(mouse_pos):
-                    state.finir_tour()
+                    fin_de_tour()
                     continue
 
                 # Le résumé de ville est au-dessus de la carte : son bouton
@@ -509,5 +546,8 @@ def run_campaign(screen: pygame.Surface, config: dict) -> bool:
 
         renderer.render_frame(state, camera, controller.hex_grid, hover_hex,
                               message, message_timer)
+        if transition_tour > 0:
+            renderer.render_transition_tour(world, transition_tour / TRANSITION_TOUR_S)
+            transition_tour -= dt
         pygame.display.flip()
         dt = clock.tick(60) / 1000.0
